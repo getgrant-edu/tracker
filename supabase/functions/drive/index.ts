@@ -7,7 +7,7 @@
 // SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY Supabase добавляет сам.
 //
 // Кто что может:
-//   куратор — всё: создать/привязать папку (в том числе списком — action "folders"), загрузить, скачать, показать/скрыть от студента, удалить, удалить всё;
+//   куратор — всё: создать/привязать папку (в том числе списком — action "folders"), разложить папки по школам («organize»), загрузить, скачать, показать/скрыть от студента, удалить, удалить всё;
 //   студент — только своя папка: видит файлы, отмеченные «видно студенту», загружает,
 //             удаляет только то, что загрузил сам. Рекомендательные письма и т.п. куратор просто не открывает студенту.
 
@@ -100,6 +100,23 @@ async function createFolder(name, parent) {
     body: JSON.stringify({ name, mimeType: FOLDER, parents: [parent] }),
   });
 }
+// Папки школ внутри корневой папки: в них лежат папки учеников (как «Где учится» в трекере).
+const SCHOOLS = ["Центр GetGrant", "Келечек MIT", "Звёздочка"];
+const rootId = () => { const r = env("DRIVE_ROOT_FOLDER_ID"); if (!r) throw new HttpError(500, "Не задан секрет DRIVE_ROOT_FOLDER_ID"); return r; };
+let schoolCache = null; // { имя школы: id папки } — на время одного запуска функции
+async function schoolFolders() {
+  if (!schoolCache) {
+    schoolCache = {};
+    for (const f of await listChildren(rootId())) if (f.mimeType === FOLDER && SCHOOLS.includes(f.name) && !schoolCache[f.name]) schoolCache[f.name] = f.id;
+  }
+  return schoolCache;
+}
+async function schoolFolder(school) {
+  const name = SCHOOLS.includes(school) ? school : SCHOOLS[0];
+  const map = await schoolFolders();
+  if (!map[name]) map[name] = (await createFolder(name, rootId())).id;
+  return map[name];
+}
 async function uploadFile(folderId, file, meta) {
   const boundary = "gg" + crypto.randomUUID().replace(/-/g, "");
   const metadata = { name: meta.name, parents: [folderId], appProperties: meta.props, description: meta.description || "" };
@@ -171,13 +188,44 @@ async function handler(req) {
     const form = isForm ? await req.formData() : null;
     const body = form ? Object.fromEntries([...form.entries()].filter(([, v]) => typeof v === "string")) : await req.json().catch(() => ({}));
     const action = String(body.action || "");
+    schoolCache = null;
 
-    // Папки в корневой папке центра — для автопривязки по имени (сопоставляет сам трекер, куратор подтверждает).
+    // Папки учеников — для автопривязки по имени (сопоставляет сам трекер, куратор подтверждает):
+    // лежащие прямо в корневой папке и внутри папок школ. Сами папки школ в список не входят.
     if (action === "folders") {
       if ((await rpc("tracker_is_staff", {}, auth)) !== true) deny("Только для кураторов");
-      const root = env("DRIVE_ROOT_FOLDER_ID"); if (!root) throw new HttpError(500, "Не задан секрет DRIVE_ROOT_FOLDER_ID");
-      const folders = (await listChildren(root)).filter((f) => f.mimeType === FOLDER).map((f) => ({ id: f.id, name: f.name }));
+      const folders = [];
+      for (const f of await listChildren(rootId())) {
+        if (f.mimeType !== FOLDER) continue;
+        if (SCHOOLS.includes(f.name)) {
+          for (const c of await listChildren(f.id)) if (c.mimeType === FOLDER) folders.push({ id: c.id, name: c.name, school: f.name });
+        } else folders.push({ id: f.id, name: f.name, school: "" });
+      }
       return json({ folders });
+    }
+
+    // Разложить папки учеников по папкам школ. Переносятся только папки, лежащие прямо в корневой папке;
+    // папки в других местах (например, привязанные по ссылке) не трогаем. Файлы и ссылки на папки не меняются.
+    if (action === "organize") {
+      if ((await rpc("tracker_is_staff", {}, auth)) !== true) deny("Только для кураторов");
+      const r = await fetch(env("SUPABASE_URL") + "/rest/v1/tracker_students?select=id,name,school,drive_folder_id&drive_folder_id=not.is.null", {
+        headers: { apikey: env("SUPABASE_ANON_KEY"), Authorization: auth },
+      });
+      if (!r.ok) throw new HttpError(502, "Не удалось получить список студентов");
+      const students = await r.json();
+      const root = rootId(); const res = { moved: 0, already: 0, elsewhere: 0, missing: 0, items: [] };
+      for (const st of students) {
+        const f = await getFile(st.drive_folder_id).catch(() => null);
+        if (!f || f.trashed) { res.missing++; res.items.push({ name: st.name, result: "папка не найдена на Диске" }); continue; }
+        const target = await schoolFolder(st.school);
+        const parents = f.parents || [];
+        if (parents.includes(target)) { res.already++; continue; }
+        if (!parents.includes(root)) { res.elsewhere++; res.items.push({ name: st.name, result: "папка лежит не в корневой папке — не трогаю" }); continue; }
+        await g("files/" + encodeURIComponent(f.id) + "?addParents=" + encodeURIComponent(target) + "&removeParents=" + encodeURIComponent(root) + "&fields=id",
+          { method: "PATCH", headers: { "Content-Type": "application/json" }, body: "{}" });
+        res.moved++; res.items.push({ name: st.name, result: "→ " + (SCHOOLS.includes(st.school) ? st.school : SCHOOLS[0]) });
+      }
+      return json(res);
     }
 
     const acc = await rpc("drive_access", { sid: body.studentId || null }, auth);
@@ -195,8 +243,7 @@ async function handler(req) {
     if (action === "create") {
       onlyStaff();
       if (acc.folderId) return json({ folderId: acc.folderId, folderUrl: folderUrl(acc.folderId) });
-      const root = env("DRIVE_ROOT_FOLDER_ID"); if (!root) throw new HttpError(500, "Не задан секрет DRIVE_ROOT_FOLDER_ID");
-      const f = await createFolder(acc.name || acc.id, root);
+      const f = await createFolder(acc.name || acc.id, await schoolFolder(acc.school));
       await rpc("drive_set_folder", { sid: acc.id, fid: f.id }, auth);
       return json({ folderId: f.id, folderUrl: folderUrl(f.id) });
     }
@@ -223,8 +270,7 @@ async function handler(req) {
       if (file.size > MAX_BYTES) throw new HttpError(413, "Файл больше 25 МБ — сожмите его или загрузите частями");
       let folderId = acc.folderId;
       if (!folderId) {
-        const root = env("DRIVE_ROOT_FOLDER_ID"); if (!root) throw new HttpError(500, "Не задан секрет DRIVE_ROOT_FOLDER_ID");
-        folderId = (await createFolder(acc.name || acc.id, root)).id;
+        folderId = (await createFolder(acc.name || acc.id, await schoolFolder(acc.school))).id;
         if (staff) await rpc("drive_set_folder", { sid: acc.id, fid: folderId }, auth);
         else await saveFolderAsService(acc.id, folderId);
       }

@@ -667,6 +667,15 @@ function matchFolders(students,folders){
     pick[students[i].id]={folder:folders[j],score:v,rival}});
   return {pick,sc};
 }
+// «Разложить папки по школам»: функция drive переносит папки учеников из корня в папки «Центр GetGrant» / «Келечек MIT» / «Звёздочка»
+const orgBlock=()=>S.canWrite?`<details class="more" style="margin-top:14px"><summary>Разложить папки по школам</summary>
+  <p class="note">Папки учеников, которые лежат прямо в корневой папке Диска, переедут в папки школ: ${SCHOOLS.map(esc).join(", ")} (по полю «Где учится»). Папки школ создадутся сами. Файлы и ссылки на папки не меняются; папки, привязанные из других мест Диска, не трогаются. Новые папки и так создаются сразу в папке школы.</p>
+  <div class="actions" style="justify-content:flex-start"><button class="btn primary" type="button" id="af-organize">Разложить</button></div><div id="af-org-res"></div></details>`:"";
+function bindOrg(){const b=$("#af-organize");if(!b)return;b.onclick=async()=>{b.disabled=true;b.textContent="Раскладываю…";const out=$("#af-org-res");
+  try{const d=await driveCall({action:"organize"});
+    out.innerHTML=`<p class="note">Перенесено: <b>${d.moved}</b> · уже на месте: ${d.already}${d.elsewhere?` · лежат в другом месте Диска (не тронуты): ${d.elsewhere}`:""}${d.missing?` · папка не найдена: ${d.missing}`:""}</p>${d.items.length?`<div class="list">${d.items.map(i=>`<div class="li" style="cursor:default"><div class="t">${esc(i.name)}<div class="sub">${esc(i.result)}</div></div></div>`).join("")}</div>`:""}`;
+    b.textContent="Готово";toast("Папки разложены по школам")}
+  catch(e){out.innerHTML=`<p class="note" style="color:var(--crit)">${esc(e.message)}</p>`;b.disabled=false;b.textContent="Разложить"}}}
 async function autoFoldersSheet(){
   openSheet(`<h3>Папки студентов на Диске</h3><div id="af-box"><p class="note">Смотрю папки на Google Диске…</p></div>`);
   let d;try{d=await driveCall({action:"folders"})}catch(e){const b=$("#af-box");if(b)b.innerHTML=`<p class="note" style="color:var(--crit)">${esc(e.message)}</p>`;return}
@@ -675,7 +684,7 @@ async function autoFoldersSheet(){
   const folders=d.folders.filter(f=>!linkedIds.has(f.id)).sort((a,b)=>a.name.localeCompare(b.name,"ru"));
   const studs=S.students.filter(s=>!s.drive_folder_id).sort((a,b)=>(a.name||"").localeCompare(b.name||"","ru"));
   const done=S.students.length-studs.length;
-  if(!studs.length){box.innerHTML=`<p class="note" style="margin-top:0">У всех студентов (${done}) папка уже привязана.</p><div class="actions"><span class="sp"></span><button class="btn" id="cancel">Закрыть</button></div>`;$("#cancel").onclick=closeSheet;return}
+  if(!studs.length){box.innerHTML=`<p class="note" style="margin-top:0">У всех студентов (${done}) папка уже привязана.</p>${orgBlock()}<div class="actions"><span class="sp"></span><button class="btn" id="cancel">Закрыть</button></div>`;$("#cancel").onclick=closeSheet;bindOrg();return}
   const {pick,sc}=matchFolders(studs,folders);
   const used=new Set(Object.values(pick).map(p=>p.folder.id));
   const row=(s,i)=>{const p=pick[s.id];const sure=p&&!p.rival&&p.score>=.85;
@@ -688,12 +697,13 @@ async function autoFoldersSheet(){
   box.innerHTML=`<p class="note" style="margin-top:0">Трекер сравнил имена студентов с названиями папок в корневой папке Диска с учётом разного написания латиницей. Отмечены только уверенные совпадения. Остальные проверьте, выберите папку и поставьте галочку.${done?` Уже привязано: ${done}.`:""}</p>
     ${folders.length?"":`<p class="note" style="color:var(--crit)">В корневой папке нет свободных папок.</p>`}
     <div>${studs.map(row).join("")}</div>
+    ${orgBlock()}
     ${spare.length?`<p class="note">Папки, для которых не нашлось студента (${spare.length}): ${esc(spare.map(f=>f.name).join(", "))}</p>`:""}
     <div class="actions"><span class="sp"></span><button class="btn" id="cancel">Отмена</button><button class="btn primary" id="af-go">Привязать</button></div>`;
   const count=()=>{const n=box.querySelectorAll("[data-afchk]:checked").length;$("#af-go").textContent=n?`Привязать ${n}`:"Привязать"};
   box.querySelectorAll("[data-afsel]").forEach(sel=>sel.onchange=()=>{box.querySelector(`[data-afchk="${CSS.escape(sel.dataset.afsel)}"]`).checked=!!sel.value;count()});
   box.querySelectorAll("[data-afchk]").forEach(c=>c.onchange=()=>{if(c.checked&&!box.querySelector(`[data-afsel="${CSS.escape(c.dataset.afchk)}"]`).value){c.checked=false;toast("Сначала выберите папку")}count()});
-  count();$("#cancel").onclick=closeSheet;
+  count();$("#cancel").onclick=closeSheet;bindOrg();
   $("#af-go").onclick=async e=>{
     const todo=[...box.querySelectorAll("[data-afchk]:checked")].map(c=>({sid:c.dataset.afchk,fid:box.querySelector(`[data-afsel="${CSS.escape(c.dataset.afchk)}"]`).value})).filter(x=>x.fid);
     if(!todo.length){toast("Отметьте, кого привязать");return}
