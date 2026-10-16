@@ -598,7 +598,7 @@ const cPortfolio=s=>`<fieldset class="fs"${ro()}><div class="grid">
 function bPortfolio(s){if(!S.canWrite)return;$("#p-save").onclick=async()=>{try{await S.db.doc("students/"+s.id).update({doneList:$("#p-done").value.trim(),strengths:$("#p-str").value.trim(),weaknesses:$("#p-weak").value.trim(),curatorNotes:$("#p-notes").value.trim(),strategy:$("#p-strategy").value.trim(),updatedAt:new Date().toISOString()});toast("Сохранено");await refreshCard("students")}catch(e){fail(e)}}}
 
 /* --- documents (Google Drive via Edge Function "drive") --- */
-const DOC_TYPES=["Паспорт","Аттестат / транскрипт","Сертификат IELTS/SAT","Рекомендательное письмо","Эссе","Согласие родителей","Портфолио","Финансовые документы","Другое"];
+const DOC_TYPES=["Личные данные","Паспорт","Аттестат / транскрипт","Сертификат IELTS/SAT","Рекомендательное письмо","Эссе","Согласие родителей","Портфолио","Финансовые документы","Другое"];
 const fmtSize=b=>b==null?"":b<1024*1024?Math.max(1,Math.round(b/1024))+" КБ":(b/1048576).toFixed(1).replace(".",",")+" МБ";
 async function driveCall(body,raw){
   const cfg=window.TRACKER_CONFIG||{};const {data:{session}}=await SB.auth.getSession();const isF=body instanceof FormData;
@@ -610,8 +610,32 @@ async function driveCall(body,raw){
   return d;
 }
 async function driveDownload(body){const r=await driveCall({...body,action:"download"},true);const name=decodeURIComponent(r.headers.get("x-file-name")||"файл");const url=URL.createObjectURL(await r.blob());const a=document.createElement("a");a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000)}
-const cDocs=s=>`<div id="docs-box"><p class="note">Загружаю документы с Google Диска…</p></div>`;
+const cDocs=s=>piBlock(s)+`<div id="docs-box"><p class="note">Загружаю документы с Google Диска…</p></div>`;
+/* --- анкета «Student personal information»: кураторы заполняют здесь, функция drive делает из неё Google Doc в папке студента --- */
+// [ключ, подпись (как в шаблоне центра), подсказка, широкое поле, заголовок раздела перед полем]; ключи совпадают с PI_ROWS в supabase/functions/drive
+const PI_FIELDS=[["familyName","Family name","фамилия латиницей, как в паспорте",0,"Студент"],["givenName","Given name","имя латиницей, как в паспорте"],["birthPlace","Where were you born?","город, страна"],
+  ["homeAddress","Home address","",1],["postalCode","Postal code"],["cityCountry","City / country"],["email","Email","только gmail"],["phone","Phone number"],
+  ["parentFamilyName","Parent family name","",0,"Родитель"],["parentGivenName","Parent given name"],["parentEmail","Parent email","только gmail"],["parentPhone","Parent phone number"],
+  ["visaRefused","Have you ever been refused a visa? If yes, to which country (or countries)?","",1,"Визы"],["validVisas","Do you currently have any valid visas? If yes, for which country (or countries)?","",1]];
+function piBlock(s){
+  const p=s.personal||{};const v=k=>p[k]!=null?p[k]:k==="email"?s.studentEmail||"":"";const n=PI_FIELDS.filter(([k])=>String(p[k]||"").trim()).length;
+  return `<details class="more" style="margin:0 0 14px"><summary>Личные данные для вузов (Personal information) <span class="sub">заполнено ${n} из ${PI_FIELDS.length}</span></summary>
+    <p class="note">Заполняйте на английском, как в паспорте. «Создать документ» сохранит анкету и положит в папку студента на Диске Google Doc «Personal information»; при повторном нажатии обновится тот же документ. Студенту анкета и документ не видны.</p>
+    <div class="grid">${PI_FIELDS.map(([k,l,h,wide,sec])=>(sec?`<div class="sec">${sec}</div>`:"")+`<label${wide?' class="full"':""}>${esc(l)}${h?` <span class="sub">— ${esc(h)}</span>`:""}${wide?`<textarea id="pi-${k}" style="min-height:52px"${ro()}>${esc(v(k))}</textarea>`:`<input id="pi-${k}" value="${esc(v(k))}"${ro()}>`}</label>`).join("")}</div>
+    ${S.canWrite?`<div class="actions" style="justify-content:flex-start;flex-wrap:wrap"><button class="btn" type="button" id="pi-save">Сохранить</button><button class="btn primary" type="button" id="pi-doc">Создать документ на Диске</button></div>`:""}</details>`;
+}
+function bPersonal(s){
+  const sv=$("#pi-save"),dc=$("#pi-doc");if(!sv||sv.dataset.bound)return;sv.dataset.bound="1";
+  const data=()=>Object.fromEntries(PI_FIELDS.map(([k])=>[k,val("pi-"+k)]));
+  const store=async()=>{const p=data();if(!(await save("students",s.id,{personal:p,updatedAt:new Date().toISOString()})))throw new Error("Анкета не сохранилась — документ не создан");s.personal=p;return p};
+  sv.onclick=store;
+  dc.onclick=async()=>{if(!Object.values(data()).some(Boolean)){toast("Анкета пустая — заполните поля");return}
+    dc.disabled=true;dc.textContent="Создаю документ…";
+    try{await store();const d=await driveCall({action:"personal",studentId:s.id});toast(d.updated?"Документ на Диске обновлён":"Документ создан в папке студента");bDocs(s)}catch(e){toast(e.message)}
+    dc.disabled=false;dc.textContent="Создать документ на Диске"};
+}
 async function bDocs(s){
+  bPersonal(s);
   const box=$("#docs-box");if(!box)return;let d;
   try{d=await driveCall({action:"list",studentId:s.id})}catch(e){box.innerHTML=`<p class="note" style="color:var(--crit)">${esc(e.message)}</p>`;return}
   if(CARD.id!==s.id||CARD.tab!=="docs")return;
@@ -1251,7 +1275,7 @@ const UNI_NULL=new Set(UNI_EXTRA.filter(x=>["int","dec","date"].includes(x[1])).
 const camel=c=>c.replace(/_([a-z])/g,(_,l)=>l.toUpperCase());
 const FIELD={communityNotes:"community_notes",createdByStudent:"created_by_student",lastStudentEditAt:"last_student_edit_at",studentEditsReviewedAt:"student_edits_reviewed_at",intlPortal:"intl_portal",studentNote:"student_note",addedBy:"added_by",uniType:"uni_type",tuitionUsdMin:"tuition_usd_min",tuitionUsdMax:"tuition_usd_max",coaUsd:"coa_usd",appFeeUsd:"app_fee_usd",costsNote:"costs_note",aidPolicy:"aid_policy",meetsNeed:"meets_need",fullRide:"full_ride",ieltsMin:"ielts_min",toeflMin:"toefl_min",duolingoMin:"duolingo_min",satPolicy:"sat_policy",entranceExam:"entrance_exam",admitRate:"admit_rate",admitRateIntl:"admit_rate_intl",feeWaiver:"fee_waiver",cssProfile:"css_profile",suppEssays:"supp_essays",aidDeadline:"aid_deadline",verifiedIntake:"verified_intake",verifiedAt:"verified_at",timeStart:"time_start",timeEnd:"time_end",classId:"class_id",studentEmail:"student_email",satRange:"sat_range",reportOpts:"report_opts",groupNotes:"group_notes",doneList:"done_list",curatorNotes:"curator_notes",unisNote:"unis_note",tierTitles:"tier_titles",deadlineText:"deadline_text",nextSteps:"next_steps",gradYear:"grad_year",studentId:"student_id",uniId:"uni_id",deadlineOverride:"deadline_override",createdAt:"created_at",updatedAt:"updated_at"};
 const COLS={
-  students:["name","student_email","checklist","report_opts","group_notes","metrics","targets","tier_titles","strategy","done_list","strengths","weaknesses","curator_notes","unis_note","grade","intake","type","track","school","status","curator","grad_year","major","countries","ielts","toefl","sat","ort","gpa","contact","parent","notes","created_at","updated_at"],
+  students:["name","student_email","checklist","report_opts","group_notes","metrics","targets","tier_titles","strategy","done_list","strengths","weaknesses","curator_notes","unis_note","grade","intake","type","track","school","status","curator","grad_year","major","countries","ielts","toefl","sat","ort","gpa","contact","parent","notes","personal","created_at","updated_at"],
   unis:["name","country","link","rating","aid","deadline_text","deadlines","reqs","notes","created_at","updated_at","student_edits_reviewed_at",...UNI_EXTRA.map(x=>x[0])],
   apps:["student_id","uni_id","program","round","deadline_override","status","tier","note","grp","sort","rating","sat_range","reqs","deadline_text","aid","essay","supp","recs","docs","scores","result","amount","notes","created_at","updated_at"],
   tests:["student_id","date","test","kind","sections","total","comment","created_at","updated_at"],
@@ -1280,7 +1304,7 @@ function fail(e){const c=e&&e.code;
 function clean(o){const r={};for(const k in o)if(o[k]!==undefined&&k!=="id")r[k]=o[k];return r}
 async function save(col,id,data,prev){
   if(!S.db){toast("Нет связи с базой");return}
-  try{if(id){await S.db.doc(col+"/"+id).update(data)}else{await S.db.collection(col).add({...data,createdAt:new Date().toISOString()})}toast("Сохранено");reload(col)}catch(e){fail(e)}
+  try{if(id){await S.db.doc(col+"/"+id).update(data)}else{await S.db.collection(col).add({...data,createdAt:new Date().toISOString()})}toast("Сохранено");reload(col);return true}catch(e){fail(e);return false}
 }
 async function remove(col,id){if(!S.db)return;try{await S.db.doc(col+"/"+id).delete();toast("Удалено");reload(col);if(col==="students")reload("apps")}catch(e){fail(e)}}
 

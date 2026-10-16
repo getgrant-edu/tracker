@@ -7,7 +7,7 @@
 // SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY Supabase добавляет сам.
 //
 // Кто что может:
-//   куратор — всё: создать/привязать папку (в том числе списком — action "folders"), разложить папки по школам («organize»), загрузить, скачать, показать/скрыть от студента, удалить, удалить всё;
+//   куратор — всё: создать документ «Personal information» из анкеты («personal»), создать/привязать папку (в том числе списком — action "folders"), разложить папки по школам («organize»), загрузить, скачать, показать/скрыть от студента, удалить, удалить всё;
 //   студент — только своя папка: видит файлы, отмеченные «видно студенту», загружает,
 //             удаляет только то, что загрузил сам. Рекомендательные письма и т.п. куратор просто не открывает студенту.
 
@@ -128,6 +128,36 @@ async function uploadFile(folderId, file, meta) {
   ]);
   return g("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=" + FILE_FIELDS, {
     method: "POST", headers: { "Content-Type": "multipart/related; boundary=" + boundary }, body,
+  });
+}
+// Анкета «Student personal information» (вкладка «Документы» в трекере) → Google Doc в папке студента.
+// Порядок и подписи — как в шаблоне центра; ключи совпадают с PI_FIELDS в index.html.
+const PI_ROWS = [
+  ["familyName", "FAMILY NAME"], ["givenName", "GIVEN NAME"], ["birthPlace", "WHERE WERE YOU BORN?"],
+  ["homeAddress", "HOME ADDRESS"], ["postalCode", "POSTAL CODE"], ["cityCountry", "CITY/COUNTRY"],
+  ["email", "EMAIL"], ["phone", "PHONE NUMBER"],
+  ["parentFamilyName", "PARENT FAMILY NAME"], ["parentGivenName", "PARENT GIVEN NAME"], ["parentEmail", "PARENT EMAIL"], ["parentPhone", "PARENT PHONE NUMBER"],
+  ["visaRefused", "HAVE YOU EVER BEEN REFUSED A VISA? IF YES, TO WHICH COUNTRY (OR COUNTRIES)?"],
+  ["validVisas", "DO YOU CURRENTLY HAVE ANY VALID VISAS? IF YES, FOR WHICH COUNTRY (OR COUNTRIES)?"],
+];
+const GDOC = "application/vnd.google-apps.document";
+const htmlEsc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+function personalHtml(p) {
+  const name = [p.givenName, p.familyName].filter(Boolean).join(" ");
+  const cell = "border:1px solid #000;padding:6pt;vertical-align:top;font-family:Arial;font-size:11pt";
+  const rows = PI_ROWS.map(([k, l]) => `<tr><td style="${cell};width:45%"><b>${htmlEsc(l)}</b></td><td style="${cell}">${htmlEsc(p[k]).replace(/\n/g, "<br>")}</td></tr>`).join("");
+  return `<html><head><meta charset="utf-8"></head><body><p style="text-align:center;font-family:Arial;font-size:14pt"><b>STUDENT PERSONAL INFORMATION</b></p>` +
+    `<p style="font-family:Arial;font-size:11pt"><b>STUDENT NAME:</b> ${htmlEsc(name)}</p><table style="border-collapse:collapse;width:100%">${rows}</table></body></html>`;
+}
+// Создать (POST) или перезаписать (PATCH существующий id) файл: метаданные + содержимое одним запросом.
+async function multipart(fileId, metadata, blob, type) {
+  const boundary = "gg" + crypto.randomUUID().replace(/-/g, "");
+  const body = new Blob([
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n`,
+    `--${boundary}\r\nContent-Type: ${type}\r\n\r\n`, blob, `\r\n--${boundary}--`,
+  ]);
+  return g("https://www.googleapis.com/upload/drive/v3/files" + (fileId ? "/" + encodeURIComponent(fileId) : "") + "?uploadType=multipart&fields=" + FILE_FIELDS, {
+    method: fileId ? "PATCH" : "POST", headers: { "Content-Type": "multipart/related; boundary=" + boundary }, body,
   });
 }
 const folderUrl = (id) => id ? "https://drive.google.com/drive/folders/" + id : "";
@@ -280,6 +310,31 @@ async function handler(req) {
       const props = { gg_cat: cat, gg_by: acc.email || "", gg_src: staff ? "staff" : "student", gg_vis: staff ? (body.visible === "1" ? "1" : "0") : "1" };
       const f = await uploadFile(folderId, file, { name, props, description: "Загружено через трекер GetGrant: " + (acc.email || "") });
       return json({ file: view(f, staff), folderId });
+    }
+
+    // Документ с личными данными: данные берём из базы (правами куратора), документ один на студента — при повторе перезаписывается.
+    if (action === "personal") {
+      onlyStaff();
+      const r = await fetch(env("SUPABASE_URL") + "/rest/v1/tracker_students?select=personal&id=eq." + encodeURIComponent(acc.id), {
+        headers: { apikey: env("SUPABASE_ANON_KEY"), Authorization: auth },
+      });
+      const rows = r.ok ? await r.json() : null;
+      if (!rows || !rows.length) throw new HttpError(502, "Не удалось прочитать анкету студента");
+      const p = rows[0].personal || {};
+      if (!PI_ROWS.some(([k]) => String(p[k] || "").trim())) throw new HttpError(400, "Анкета пустая — заполните и сохраните поля");
+      let folderId = acc.folderId;
+      if (!folderId) {
+        folderId = (await createFolder(acc.name || acc.id, await schoolFolder(acc.school))).id;
+        await rpc("drive_set_folder", { sid: acc.id, fid: folderId }, auth);
+      }
+      const old = (await listChildren(folderId)).find((f) => (f.appProperties || {}).gg_kind === "personal" && f.mimeType === GDOC);
+      const name = "Personal information — " + ([p.givenName, p.familyName].filter(Boolean).join(" ") || acc.name || acc.id);
+      const html = new Blob([personalHtml(p)], { type: "text/html" });
+      const f = old
+        ? await multipart(old.id, { name }, html, "text/html; charset=UTF-8")
+        : await multipart("", { name, mimeType: GDOC, parents: [folderId], description: "Создано трекером GetGrant из анкеты",
+            appProperties: { gg_kind: "personal", gg_cat: "Личные данные", gg_src: "staff", gg_vis: "0", gg_by: acc.email || "" } }, html, "text/html; charset=UTF-8");
+      return json({ file: view(f, true), updated: !!old, folderId });
     }
 
     if (action === "download") {

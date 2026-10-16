@@ -2,7 +2,7 @@
 const ENV={GOOGLE_CLIENT_ID:"c",GOOGLE_CLIENT_SECRET:"s",GOOGLE_REFRESH_TOKEN:"r",DRIVE_ROOT_FOLDER_ID:"ROOT",SUPABASE_URL:"https://sb",SUPABASE_ANON_KEY:"anon",SUPABASE_SERVICE_ROLE_KEY:"svc"};
 let H;globalThis.Deno={env:{get:k=>ENV[k]},serve:h=>{H=h}};
 // fake DB + Drive
-const students={a:{id:"a",name:"Айбек",folder:null,email:"a@x.kg",school:"Центр GetGrant"},b:{id:"b",name:"Бермет",folder:"FB",email:"b@x.kg",school:"Келечек MIT"},c:{id:"c",name:"Чолпон",folder:"FC",email:"c@x.kg",school:"Звёздочка"},d:{id:"d",name:"Данияр",folder:"FOUT",email:"d@x.kg",school:"Звёздочка"}};
+const students={a:{id:"a",name:"Айбек",folder:null,email:"a@x.kg",school:"Центр GetGrant",personal:{familyName:"Asanov",givenName:"Aibek",homeAddress:"<b>Toktogula 1</b>",visaRefused:"No",validVisas:"USA (F-1)\nKorea"}},b:{id:"b",name:"Бермет",folder:"FB",email:"b@x.kg",school:"Келечек MIT"},c:{id:"c",name:"Чолпон",folder:"FC",email:"c@x.kg",school:"Звёздочка"},d:{id:"d",name:"Данияр",folder:"FOUT",email:"d@x.kg",school:"Звёздочка"}};
 const users={"Bearer A":{role:"student",sid:"a",email:"a@x.kg"},"Bearer B":{role:"student",sid:"b",email:"b@x.kg"},"Bearer C":{role:"staff",email:"cur@gg.kg"}};
 let n=0;const files={ROOT:{id:"ROOT",mimeType:"application/vnd.google-apps.folder",name:"root",parents:[]},
  FB:{id:"FB",mimeType:"application/vnd.google-apps.folder",name:"Бермет",parents:["ROOT"]},
@@ -22,11 +22,14 @@ globalThis.fetch=async(url,init={})=>{url=String(url);const J=(o,s=200)=>new Res
    if(fn==="tracker_is_staff")return J(u.role==="staff");
    if(fn==="drive_access"){let sid=a.sid;if(u.role!=="staff"){if(sid&&sid!==u.sid)return J(null);sid=u.sid}const s=students[sid];if(!s)return J(null);return J({role:u.role,id:s.id,name:s.name,folderId:s.folder,school:s.school,email:u.email})}
    if(fn==="drive_set_folder"){if(u.role!=="staff")return J({message:"not allowed"},403);students[a.sid].folder=a.fid;return J(null)}}
+ if(url.startsWith("https://sb/rest/v1/tracker_students?select=personal&id=eq.")){if(init.headers.Authorization!=="Bearer C")return J([]);const st=students[decodeURIComponent(url.split("eq.")[1])];return J(st?[{personal:st.personal||{}}]:[])}
  if(url.startsWith("https://sb/rest/v1/tracker_students?select=")){if(init.headers.Authorization!=="Bearer C")return J([],200);return J(Object.values(students).filter(x=>x.folder).map(x=>({id:x.id,name:x.name,school:x.school,drive_folder_id:x.folder})))}
  if(url.startsWith("https://sb/rest/v1/tracker_students")){if(init.headers.Authorization!=="Bearer svc")return J({},401);const id=decodeURIComponent(url.split("eq.")[1]);students[id].folder=JSON.parse(init.body).drive_folder_id;return new Response(null,{status:204})}
  if(init.headers?.Authorization!=="Bearer tok")return J({error:{message:"auth"}},401);
  const u=new URL(url);
- if(u.pathname==="/upload/drive/v3/files"){const txt=await new Response(init.body).text();const meta=JSON.parse(txt.split("\r\n\r\n")[1].split("\r\n")[0]);const id="up"+(++n);files[id]={id,...meta,mimeType:"text/plain",size:"5",trashed:false};return J(files[id])}
+ if(u.pathname.startsWith("/upload/drive/v3/files")){const txt=await new Response(init.body).text();const parts=txt.split("\r\n\r\n");const meta=JSON.parse(parts[1].split("\r\n")[0]);const content=parts[2];
+   const pid=u.pathname.split("/")[5];if(pid){if(init.method!=="PATCH"||!files[pid])return J({error:{message:"bad update"}},400);Object.assign(files[pid],meta,{content});return J(files[pid])}
+   const id="up"+(++n);files[id]={id,...meta,mimeType:meta.mimeType||"text/plain",size:"5",trashed:false,content};return J(files[id])}
  if(u.pathname==="/drive/v3/files"&&init.method==="POST"){const m=JSON.parse(init.body);const id="F"+(++n);files[id]={id,...m};return J(files[id])}
  if(u.pathname==="/drive/v3/files"){const pid=u.searchParams.get("q").match(/'(.+?)'/)[1];return J({files:Object.values(files).filter(f=>(f.parents||[]).includes(pid)&&!f.trashed)})}
  const m=u.pathname.match(/^\/drive\/v3\/files\/([^/]+)(\/export)?$/);
@@ -67,6 +70,14 @@ fd=new FormData();fd.append("action","upload");fd.append("file",new Blob([new Ui
 r=await call("Bearer A",fd);ok(r.s===413,"size limit");
 r=await call("Bearer C",{action:"link",studentId:"a",folder:"https://drive.google.com/drive/folders/SUB?usp=sharing"});ok(r.s===400||r.s===200,"link parse SUB (short id) status "+r.s);
 r=await call("Bearer C",{action:"link",studentId:"a",folder:"https://drive.google.com/file/d/passpasspass/view"});ok(r.s===400||r.s===404,"link to non-folder rejected "+r.s);
+r=await call("Bearer A",{action:"personal"});ok(r.s===403,"student cannot build personal-info doc");
+r=await call("Bearer C",{action:"personal",studentId:"c"});ok(r.s===400,"empty questionnaire → 400");
+r=await call("Bearer C",{action:"personal",studentId:"a"});const pd=r.d.file&&files[r.d.file.id];
+ok(r.s===200&&!r.d.updated&&pd&&pd.mimeType==="application/vnd.google-apps.document"&&pd.parents[0]===students.a.folder&&pd.appProperties.gg_kind==="personal"&&pd.appProperties.gg_vis==="0"&&pd.name==="Personal information — Aibek Asanov","staff builds hidden Google Doc in student's folder: "+(pd&&pd.name));
+ok(pd&&pd.content.includes("&lt;b&gt;Toktogula 1&lt;/b&gt;")&&pd.content.includes("REFUSED A VISA")&&pd.content.includes("USA (F-1)<br>Korea")&&pd.content.includes("STUDENT NAME:</b> Aibek Asanov"),"doc content: escaped, visa questions, line breaks");
+students.a.personal.familyName="Asanova";r=await call("Bearer C",{action:"personal",studentId:"a"});
+ok(r.s===200&&r.d.updated&&r.d.file.id===pd.id&&files[pd.id].name.endsWith("Asanova")&&Object.values(files).filter(f=>(f.appProperties||{}).gg_kind==="personal"&&!f.trashed).length===1,"second build overwrites the same doc (no duplicates)");
+r=await call("Bearer A",{action:"list"});ok(!r.d.files.some(f=>f.id===pd.id),"student does not see personal-info doc");
 r=await call("Bearer C",{action:"purge",studentId:"b"});ok(r.s===400,"purge needs confirm");
 r=await call("Bearer C",{action:"purge",studentId:"b",confirm:"УДАЛИТЬ"});ok(r.s===200&&files.FB.trashed&&students.b.folder===null,"purge trashes folder & unlinks");
 r=await call("Bearer A",{action:"organize"});ok(r.s===403,"student cannot organize folders");
