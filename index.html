@@ -204,6 +204,22 @@ tbody tr:hover .gcell{background:var(--surface)}
 .dact{display:flex;gap:6px;flex-wrap:wrap}.dact .btn{text-decoration:none}
 .docs-up{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px;border:1px dashed var(--line);border-radius:var(--radius);background:var(--surface-2)}
 .docs-up input[type=file]{flex:1;min-width:200px}
+.board{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(210px,1fr);gap:10px;overflow-x:auto;padding-bottom:6px;align-items:start}
+.bcol{background:var(--surface-2);border-radius:var(--radius);padding:10px;min-height:140px}
+.bcol h3{margin:0 0 2px;font-size:13px;font-weight:600}.bcol h3 .n{color:var(--muted);font-weight:500}
+.bcol.over{outline:2px dashed var(--accent);outline-offset:-2px}
+.bcard{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-top:8px;cursor:pointer;font-size:13.5px}
+.bcard[draggable="true"]{cursor:grab}.bcard.drag{opacity:.5}.bcard .sub{font-size:12px}
+.btags{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}.btags:empty{display:none}
+.bsel{width:100%;margin-top:6px;font-size:12.5px;padding:4px 6px}
+.bulkbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px;margin-bottom:10px;border-radius:var(--radius);background:var(--accent-soft)}
+.bulkbar[hidden]{display:none}
+.cattable select{font-size:13px;padding:4px 6px;max-width:190px}
+.chip.tag{display:inline-flex;align-items:center;gap:2px;margin:1px 0}.chip.tag button{border:0;background:none;color:inherit;cursor:pointer;padding:0 0 0 3px;font:inherit;line-height:1}
+.taginp{width:90px;font-size:12.5px;padding:3px 6px}.tagcell{min-width:170px}
+.cbar{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 12px}
+.cbar button{font:inherit;font-size:12.5px;border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:999px;padding:4px 10px;cursor:pointer}
+.cbar button .n{color:var(--muted)}.cbar button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff}.cbar button[aria-pressed="true"] .n{color:inherit;opacity:.8}
 .linkbtn{background:none;border:0;padding:0;color:var(--accent);cursor:pointer;font:inherit;text-decoration:underline}
 .danger-zone{margin-top:22px;border-top:1px solid var(--line);padding-top:10px}.danger-zone summary{cursor:pointer;color:var(--crit)}
 @media (max-width:720px){.doc{grid-template-columns:1fr}.doc select{max-width:none}}
@@ -322,7 +338,121 @@ function render(){
 
 function schoolBar(){const n=x=>S.students.filter(s=>!x||schoolOf(s)===x).length;
   return `<div class="seg schoolbar" role="tablist" aria-label="Где учится">${["",...SCHOOLS].map(x=>`<button type="button" role="tab" data-school="${esc(x)}" aria-selected="${(S.f.school||"")===x}">${x?esc(x):"Все"} <span class="n">${n(x)}</span></button>`).join("")}</div>`}
+/* --- Сводка: «Обзор» / «Доска по этапам» / «Таблица» (студенты × страны, этап, тип, метки) --- */
+const STAGES=["Выбирает вузы","Готовит документы","Подаёт","Ждёт результат","Поступил","Не поступил / пауза"];
+const SVIEWS=[["overview","Обзор"],["board","Доска по этапам"],["table","Таблица"]];
+try{const v=localStorage.getItem("gg-sview");if(SVIEWS.some(x=>x[0]===v))S.f.sview=v}catch(e){}
+// Пока куратор не поставил этап сам, он считается по статусам заявок
+function autoStage(s){
+  const ap=S.apps.filter(a=>a.studentId===s.id);
+  if(!ap.length)return STAGES[0];
+  if(ap.some(a=>a.status==="Принят"))return "Поступил";
+  const live=ap.filter(a=>a.status!=="Отказ"&&a.status!=="Отозвано");
+  if(!live.length)return "Не поступил / пауза";
+  if(live.every(a=>SUBMITTED.has(a.status)))return "Ждёт результат";
+  if(live.some(a=>SUBMITTED.has(a.status)))return "Подаёт";
+  return "Готовит документы";
+}
+const stageOf=s=>STAGES.includes(s.stage)?s.stage:autoStage(s);
+const nUnis=n=>n+" "+(n%10===1&&n%100!==11?"вуз":n%10>=2&&n%10<=4&&(n%100<10||n%100>=20)?"вуза":"вузов");
+// Страны студента: по заявкам + из поля «Целевые страны» в профиле
+function studentCountries(s){
+  const set=new Set(S.apps.filter(a=>a.studentId===s.id).map(a=>a.country).filter(Boolean));const t=(s.countries||"").toLowerCase();
+  if(t)COUNTRIES.forEach(c=>{if(t.includes(c.toLowerCase().replace(/^южная /,"")))set.add(c)});
+  return [...set];
+}
+const allTags=()=>[...new Set(S.students.flatMap(s=>s.tags||[]))].sort((a,b)=>a.localeCompare(b,"ru"));
+function catFiltered(){
+  const f=S.f,q=(f.bq||"").trim().toLowerCase(),bc=f.bcountry||"";
+  return S.students.filter(s=>inSchool(s)&&(!f.scur||(s.curator||"")===f.scur)&&(!q||(s.name||"").toLowerCase().includes(q))&&(!f.btag||(s.tags||[]).includes(f.btag))
+    &&(!bc||(bc.startsWith("r:")?studentCountries(s).some(c=>(REGION_OF[c]||"Другое")===bc.slice(2)):studentCountries(s).includes(bc)))
+    &&(!f.bstage||stageOf(s)===f.bstage)).sort((a,b)=>(a.name||"").localeCompare(b.name||"","ru"));
+}
+function catToolbar(withStage){
+  const f=S.f,bc=f.bcountry||"";
+  const cs=[...new Set(S.students.filter(inSchool).flatMap(studentCountries))].sort((a,b)=>a.localeCompare(b,"ru"));
+  return `<div class="toolbar"><input class="grow" id="f-bq" placeholder="Поиск студента" value="${esc(f.bq||"")}">
+    <select id="f-scur"><option value="">Все кураторы</option>${opts(S.lists.curators,f.scur,false)}</select>
+    <select id="f-bcountry"><option value="">Все страны</option><optgroup label="Регион">${REGIONS.map(r=>`<option value="r:${esc(r)}"${bc==="r:"+r?" selected":""}>${esc(r)} — весь регион</option>`).join("")}</optgroup><optgroup label="Страна">${opts(cs,bc.startsWith("r:")?"":bc,false)}</optgroup></select>
+    <select id="f-btag"><option value="">Все метки</option>${opts(allTags(),f.btag,false)}</select>
+    ${withStage?`<select id="f-bstage"><option value="">Все этапы</option>${opts(STAGES,f.bstage,false)}</select>`:""}</div>`;
+}
+const stageSelect=(s,attr,cls)=>`<select ${attr}="${esc(s.id)}"${cls?` class="${cls}"`:""} aria-label="Этап"${ro()}>${STAGES.map(g=>`<option${g===stageOf(s)?" selected":""}>${esc(g)}</option>`).join("")}${s.stage?'<option value="">↺ определять по заявкам</option>':""}</select>`;
+const autoMark=s=>s.stage?"":'<span class="chip" title="Этап определён по статусам заявок — выберите свой, если он другой">авто</span>';
+function bCard(s){
+  const n=S.apps.filter(a=>a.studentId===s.id).length,cs=studentCountries(s);
+  return `<div class="bcard"${S.canWrite?' draggable="true"':""} data-card="${esc(s.id)}"><b>${esc(s.name)}</b>
+    <div class="sub">${esc([cs.slice(0,3).join(", ")+(cs.length>3?" +"+(cs.length-3):""),n?nUnis(n):"нет вузов",s.curator].filter(Boolean).join(" · "))}</div>
+    <div class="btags">${autoMark(s)}${trackChip(s.track)}${(s.tags||[]).map(t=>`<span class="chip">${esc(t)}</span>`).join("")}</div>
+    ${S.canWrite?stageSelect(s,"data-stage-of","bsel"):""}</div>`;
+}
+function vBoard(){
+  const st=catFiltered();
+  const cols=STAGES.map(g=>{const list=st.filter(s=>stageOf(s)===g);
+    return `<section class="bcol" data-drop="${esc(g)}"><h3>${esc(g)} <span class="n">${list.length}</span></h3>${list.map(bCard).join("")||'<p class="note" style="margin:6px 0 0">—</p>'}</section>`}).join("");
+  return catToolbar(false)+`<div class="board">${cols}</div>
+    <p class="note">Перетащите карточку в другую колонку или выберите этап внизу карточки. Пока этап не выбран вручную, трекер ставит его сам по статусам заявок — такие карточки помечены «авто».</p>`;
+}
+function vCatTable(){
+  const st=catFiltered(),sel=S.bsel||(S.bsel=new Set());[...sel].forEach(id=>{if(!st.some(s=>s.id===id))sel.delete(id)});
+  const rows=st.map(s=>{const cs=studentCountries(s),n=S.apps.filter(a=>a.studentId===s.id).length;
+    return `<tr>${S.canWrite?`<td><input type="checkbox" data-bpick="${esc(s.id)}"${sel.has(s.id)?" checked":""} aria-label="Выбрать ${esc(s.name)}"></td>`:""}
+      <td><a href="#" data-open-student="${esc(s.id)}"><b>${esc(s.name)}</b></a><div class="sub">${esc([schoolOf(s),s.curator].filter(Boolean).join(" · "))}</div></td>
+      <td>${cs.map(c=>`<span class="chip">${esc(c)}</span>`).join(" ")||'<span class="sub">—</span>'}</td>
+      <td class="num">${n||""}</td>
+      <td>${stageSelect(s,"data-set-stage")} ${autoMark(s)}</td>
+      <td><select data-set-track="${esc(s.id)}" aria-label="Тип поступления"${ro()}>${opts(TRACKS,s.track)}</select></td>
+      <td class="tagcell">${(s.tags||[]).map(t=>`<span class="chip tag">${esc(t)}${S.canWrite?`<button type="button" data-untag="${esc(s.id)}" data-tag="${esc(t)}" aria-label="Убрать метку ${esc(t)}">×</button>`:""}</span>`).join(" ")}${S.canWrite?` <input class="taginp" data-addtag="${esc(s.id)}" list="tag-list" placeholder="+ метка" aria-label="Добавить метку">`:""}</td></tr>`}).join("");
+  const bulk=S.canWrite?`<div class="bulkbar" id="bulkbar"${sel.size?"":" hidden"}><b id="bulk-n">Выбрано: ${sel.size}</b>
+      <select id="bulk-stage" aria-label="Поставить этап"><option value="">Поставить этап…</option>${opts(STAGES,"",false)}</select>
+      <input id="bulk-tag" list="tag-list" placeholder="метка" style="width:130px"><button class="btn" type="button" id="bulk-tag-add">+ метку</button><button class="btn" type="button" id="bulk-tag-del">− метку</button>
+      <button class="linkbtn" type="button" id="bulk-clear">снять выбор</button></div>`:"";
+  return catToolbar(true)+bulk+`<datalist id="tag-list">${allTags().map(t=>`<option value="${esc(t)}">`).join("")}</datalist>
+    <div class="tablebox"><table class="cattable"><thead><tr>${S.canWrite?'<th><input type="checkbox" id="bpick-all" aria-label="Выбрать всех"></th>':""}<th>Студент</th><th>Страны</th><th class="num">Вузов</th><th>Этап</th><th>Тип поступления</th><th>Метки</th></tr></thead>
+    <tbody>${rows||`<tr><td colspan="7" class="empty">Никого не нашлось.</td></tr>`}</tbody></table></div>
+    <p class="note">Страны — по заявкам и полю «Целевые страны» в профиле. Отметьте студентов галочками, чтобы разом поставить этап или метку. Метку можно вписать любую — она появится в фильтре «Все метки».</p>`;
+}
+// Сохранить поля у нескольких студентов: fn(s) → изменения или null (пропустить)
+async function patchStudents(ids,fn){
+  if(!S.db){toast("Нет связи с базой");return 0}
+  let n=0;
+  try{for(const id of ids){const s=studentOf(id);if(!s)continue;const d=fn(s);if(!d)continue;await S.db.doc("students/"+id).update({...d,updatedAt:new Date().toISOString()});Object.assign(s,d);n++}}catch(e){fail(e)}
+  if(n)toast(ids.length>1?"Изменено у студентов: "+n:"Сохранено");
+  render();reload("students");return n;
+}
+function bindCat(){
+  const m=$("#main");
+  m.querySelectorAll("[data-sview]").forEach(b=>b.onclick=()=>{S.f.sview=b.dataset.sview;try{localStorage.setItem("gg-sview",S.f.sview)}catch(e){}render()});
+  m.querySelectorAll("[data-card]").forEach(c=>c.addEventListener("click",e=>{if(!e.target.closest("select"))studentSheet(c.dataset.card)}));
+  if(!S.canWrite)return;
+  const setStage=(id,v)=>patchStudents([id],s=>(s.stage||"")===v?null:{stage:v});
+  const addTag=(ids,t)=>{t=t.trim().replace(/\s+/g," ").slice(0,40);if(!t)return;patchStudents(ids,s=>(s.tags||[]).includes(t)?null:{tags:[...(s.tags||[]),t]})};
+  const delTag=(ids,t)=>patchStudents(ids,s=>(s.tags||[]).includes(t)?{tags:(s.tags||[]).filter(x=>x!==t)}:null);
+  m.querySelectorAll("[data-stage-of],[data-set-stage]").forEach(el=>el.onchange=()=>setStage(el.dataset.stageOf||el.dataset.setStage,el.value));
+  m.querySelectorAll("[data-set-track]").forEach(el=>el.onchange=()=>patchStudents([el.dataset.setTrack],()=>({track:el.value})));
+  m.querySelectorAll("[data-addtag]").forEach(el=>el.onchange=()=>addTag([el.dataset.addtag],el.value));
+  m.querySelectorAll("[data-untag]").forEach(b=>b.onclick=()=>delTag([b.dataset.untag],b.dataset.tag));
+  // галочки и действия над выбранными
+  const sel=S.bsel||(S.bsel=new Set());
+  const upd=()=>{const bar=$("#bulkbar");if(bar){bar.hidden=!sel.size;$("#bulk-n").textContent="Выбрано: "+sel.size}};
+  m.querySelectorAll("[data-bpick]").forEach(c=>c.onchange=()=>{c.checked?sel.add(c.dataset.bpick):sel.delete(c.dataset.bpick);upd()});
+  const all=$("#bpick-all");if(all)all.onchange=()=>{m.querySelectorAll("[data-bpick]").forEach(c=>{c.checked=all.checked;all.checked?sel.add(c.dataset.bpick):sel.delete(c.dataset.bpick)});upd()};
+  const bs=$("#bulk-stage");if(bs)bs.onchange=()=>{if(bs.value)patchStudents([...sel],s=>s.stage===bs.value?null:{stage:bs.value})};
+  const tagOf=()=>{const t=val("bulk-tag");if(!t)toast("Впишите метку");return t};
+  const ba=$("#bulk-tag-add");if(ba)ba.onclick=()=>{const t=tagOf();if(t)addTag([...sel],t)};
+  const bd=$("#bulk-tag-del");if(bd)bd.onclick=()=>{const t=tagOf();if(t)delTag([...sel],t)};
+  const bx=$("#bulk-clear");if(bx)bx.onclick=()=>{sel.clear();render()};
+  // доска: перетаскивание карточек между колонками
+  m.querySelectorAll("[data-card]").forEach(c=>{c.ondragstart=e=>{e.dataTransfer.setData("text/plain",c.dataset.card);c.classList.add("drag")};c.ondragend=()=>c.classList.remove("drag")});
+  m.querySelectorAll("[data-drop]").forEach(col=>{col.ondragover=e=>{e.preventDefault();col.classList.add("over")};col.ondragleave=e=>{if(!col.contains(e.relatedTarget))col.classList.remove("over")};
+    col.ondrop=e=>{e.preventDefault();col.classList.remove("over");const id=e.dataTransfer.getData("text/plain"),s=studentOf(id);if(s&&stageOf(s)!==col.dataset.drop)setStage(id,col.dataset.drop)}});
+}
 function vSummary(){
+  const v=S.f.sview||"overview";
+  return `<div class="seg2" role="tablist" aria-label="Вид сводки">${SVIEWS.map(([k,l])=>`<button type="button" role="tab" data-sview="${k}" aria-selected="${v===k}">${l}</button>`).join("")}</div>`+
+    (v==="board"?vBoard():v==="table"?vCatTable():vOverview());
+}
+function vOverview(){
   const st=S.students.filter(inSchool), ap=S.apps.filter(appInSchool);
   const adm=st; // все студенты поступают (типа «Курсы» больше нет)
   const thisYear=st.filter(isThisYear);
@@ -1100,31 +1230,56 @@ async function quickAdd(sid,uid){
 const uniUnreviewed=u=>!!u.lastStudentEditAt&&(!u.studentEditsReviewedAt||Date.parse(u.studentEditsReviewedAt)<Date.parse(u.lastStudentEditAt));
 function vUnis(){
   const f=S.f;const q=f.uq.trim().toLowerCase();
-  const count=id=>S.rawApps.filter(a=>a.uniId===id).length;
+  const cnt={};S.rawApps.forEach(a=>{cnt[a.uniId]=(cnt[a.uniId]||0)+1});
   const budget=num(f.ubudget),ielts=num(f.uielts);
-  const nEd=S.unis.filter(uniUnreviewed).length;
-  const base=S.unis.filter(u=>(!f.uedits||uniUnreviewed(u))&&(!f.upartner||u.partner)&&(!q||[u.name,u.country,u.city,u.majors,u.reqs,u.entranceExam,u.partner].join(" ").toLowerCase().includes(q))&&(!f.uregion||regionOf(u)===f.uregion)&&(!f.ucountry||u.country===f.ucountry));
+  const nEd=S.unis.filter(uniUnreviewed).length,nOurs=S.unis.filter(u=>cnt[u.id]).length;
+  // По умолчанию — «Наши вузы» (куда подают студенты); поиск и «Правки студентов» всегда идут по всему каталогу
+  const whole=!!(f.uall||q||f.uedits);
+  const pool=S.unis.filter(u=>(whole||cnt[u.id])&&(!f.uedits||uniUnreviewed(u))&&(!f.upartner||u.partner)&&(!q||[u.name,u.country,u.city,u.majors,u.reqs,u.entranceExam,u.partner].join(" ").toLowerCase().includes(q)));
+  const base=pool.filter(u=>!f.ucountry||u.country===f.ucountry);
   // Бюджет: вуз подходит, если нижняя граница обучения не выше бюджета. IELTS: минимум вуза не выше балла студента. Вузы без данных при включённом фильтре скрываются.
   const rows=base.filter(u=>(budget==null||(u.tuitionUsdMin??u.tuitionUsdMax)!=null&&(u.tuitionUsdMin??u.tuitionUsdMax)<=budget)&&(ielts==null||u.ieltsMin!=null&&Number(u.ieltsMin)<=ielts)).sort(uniSort);
   const hidden=base.length-rows.length;
+  const byC={};pool.forEach(u=>{if(u.country)byC[u.country]=(byC[u.country]||0)+1});
+  const cbar=Object.entries(byC).sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0],"ru"));
+  const extra=[f.ubudget&&"бюджет",f.uielts&&"IELTS",f.upartner&&"партнёры"].filter(Boolean);
   let grp=null;
-  const countries=[...new Set(S.unis.map(u=>u.country).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"ru"));
-  const body=rows.map(u=>{const n=count(u.id);const d=u.deadlines||{};const next=ROUNDS.map(r=>d[r]).filter(x=>x&&daysLeft(x)>=0).sort()[0];
-    const g=regionOf(u);let head="";if(g!==grp){grp=g;head=`<tr class="grp"><td colspan="8">${esc(g)} <span class="sub">· ${rows.filter(x=>regionOf(x)===g).length}</span></td></tr>`}
-    const dlt=(u.deadlineText||"").length>70?u.deadlineText.slice(0,70)+"…":u.deadlineText;
-    return head+`<tr data-open-uni="${esc(u.id)}"><td><b>${esc(u.name)}</b>${uniUnreviewed(u)?' <span class="chip warn" title="Студенты что-то изменили — откройте вуз, чтобы посмотреть и отметить «Проверено»">'+(u.createdByStudent&&!u.studentEditsReviewedAt?"добавил студент":"правки студентов")+'</span>':""}${u.partner?` <span class="chip acc" title="Партнёр GetGrant: ${esc(u.partner)}">${/^★/.test(u.partner)?"★ партнёр":"партнёр"}</span>`:""}${u.rating?`<div class="sub">${esc(u.rating)}</div>`:""}</td><td>${esc(u.country||"")}</td><td class="num">${esc(tuitionText(u))}${u.fullRide==="Да"?'<div><span class="chip good">есть full-ride</span></div>':""}</td><td class="num">${u.ieltsMin!=null?esc(u.ieltsMin):""}</td><td>${dlSummary(u)?`<span class="sub">${esc(dlSummary(u))}</span>`:dlt?`<span class="sub">${esc(dlt)}</span>`:'<span class="chip warn">нет дедлайнов</span>'}</td><td class="num">${next?fmtDate(next):""}</td><td class="num">${n||""}</td><td class="sub">${esc(u.entranceExam||"")}</td></tr>`}).join("");
-  return `<div class="toolbar"><input class="grow" id="f-uq" placeholder="Поиск по каталогу" value="${esc(f.uq)}">
-    <select id="f-uregion"><option value="">Все регионы</option>${opts(REGIONS,f.uregion,false)}</select>
-    <select id="f-ucountry"><option value="">Все страны</option>${opts(countries,f.ucountry,false)}</select>
-    <input id="f-ubudget" type="number" min="0" step="1000" inputmode="numeric" placeholder="Бюджет до $/год" value="${esc(f.ubudget)}" style="width:150px" title="Показать вузы, где обучение в год не дороже этой суммы (USD)">
-    <input id="f-uielts" type="number" min="0" max="9" step="0.5" inputmode="decimal" placeholder="IELTS студента" value="${esc(f.uielts)}" style="width:130px" title="Показать вузы, где минимальный IELTS не выше этого балла">
-    <button class="btn${f.upartner?" primary":""}" id="f-upartner" type="button" title="Показать только партнёрские вузы GetGrant">Партнёры</button>
+  const body=rows.map(u=>{const n=cnt[u.id]||0;const d=u.deadlines||{};const nr=ROUNDS.filter(r=>d[r]&&daysLeft(d[r])>=0).sort((a,b)=>d[a].localeCompare(d[b]))[0];
+    const g=regionOf(u);let head="";if(g!==grp){grp=g;head=`<tr class="grp"><td colspan="6">${esc(g)} <span class="sub">· ${rows.filter(x=>regionOf(x)===g).length}</span></td></tr>`}
+    const dlt=(u.deadlineText||"").length>60?u.deadlineText.slice(0,60)+"…":u.deadlineText;
+    const dl=nr?`<b>${fmtDate(d[nr])}</b> <span class="sub">${esc(nr)}</span>`:dlSummary(u)?`<span class="sub">прошли: ${esc(dlSummary(u))}</span>`:dlt?`<span class="sub">${esc(dlt)}</span>`:'<span class="sub">нет дат</span>';
+    return head+`<tr data-open-uni="${esc(u.id)}"><td><b>${esc(u.name)}</b>${uniUnreviewed(u)?' <span class="chip warn" title="Студенты что-то изменили — откройте вуз, чтобы посмотреть и отметить «Проверено»">'+(u.createdByStudent&&!u.studentEditsReviewedAt?"добавил студент":"правки студентов")+'</span>':""}${u.partner?` <span class="chip acc" title="Партнёр GetGrant: ${esc(u.partner)}">${/^★/.test(u.partner)?"★ партнёр":"партнёр"}</span>`:""}${u.rating?`<div class="sub">${esc(u.rating)}</div>`:""}</td><td>${esc(u.country||"")}</td><td class="num">${esc(tuitionText(u))}${u.fullRide==="Да"?'<div><span class="chip good">есть full-ride</span></div>':""}</td><td class="num">${u.ieltsMin!=null?esc(u.ieltsMin):""}</td><td>${dl}</td><td class="num">${n?`<button class="linkbtn" type="button" data-uni-studs="${esc(u.id)}" title="Кто подаёт">${n}</button>`:""}</td></tr>`}).join("");
+  return `<div class="seg2" role="tablist" aria-label="Какие вузы показать"><button type="button" role="tab" data-uall="" aria-selected="${!f.uall}">Наши вузы · ${nOurs}</button><button type="button" role="tab" data-uall="1" aria-selected="${!!f.uall}">Весь каталог · ${S.unis.length}</button></div>
+    <div class="toolbar"><input class="grow" id="f-uq" placeholder="Поиск по всему каталогу" value="${esc(f.uq)}">
+    <button class="btn${f.ufx||extra.length?" primary":""}" id="f-ufx" type="button" aria-expanded="${!!f.ufx}">Фильтры${extra.length?" · "+extra.length:""}</button>
     ${nEd||f.uedits?`<button class="btn${f.uedits?" primary":""}" id="f-uedits" type="button" title="Показать только вузы с непроверенными правками студентов">Правки студентов${nEd?" · "+nEd:""}</button>`:""}
-    ${S.canWrite?'<button class="btn" id="bulk-uni">Вставить списком</button><button class="btn primary" id="add-uni">+ Вуз</button>':""}</div>
+    ${S.canWrite?'<button class="btn primary" id="add-uni">+ Вуз</button>':""}</div>
+    ${f.ufx?`<div class="toolbar">
+      <input id="f-ubudget" type="number" min="0" step="1000" inputmode="numeric" placeholder="Бюджет до $/год" value="${esc(f.ubudget)}" style="width:150px" title="Показать вузы, где обучение в год не дороже этой суммы (USD)">
+      <input id="f-uielts" type="number" min="0" max="9" step="0.5" inputmode="decimal" placeholder="IELTS студента" value="${esc(f.uielts)}" style="width:130px" title="Показать вузы, где минимальный IELTS не выше этого балла">
+      <button class="btn${f.upartner?" primary":""}" id="f-upartner" type="button" title="Показать только партнёрские вузы GetGrant">Партнёры</button>
+      ${extra.length?'<button class="linkbtn" type="button" id="f-ureset">сбросить</button>':""}</div>`:""}
+    ${cbar.length>1?`<div class="cbar"><button type="button" data-ucountry="" aria-pressed="${!f.ucountry}">Все <span class="n">${pool.length}</span></button>${cbar.map(([c,k])=>`<button type="button" data-ucountry="${esc(c)}" aria-pressed="${f.ucountry===c}">${esc(c)} <span class="n">${k}</span></button>`).join("")}</div>`:""}
+    ${q&&!f.uall?'<p class="note" style="margin-top:0">Поиск идёт по всему каталогу, а не только по «Нашим вузам».</p>':""}
     ${hidden&&(budget!=null||ielts!=null)?`<p class="note" style="margin-top:0">Скрыто ${hidden}: не подходят по бюджету или IELTS, либо в каталоге нет этих данных.</p>`:""}
-    <div class="tablebox">${S.unis.length?`<table><thead><tr><th>Вуз</th><th>Страна</th><th class="num">Обучение, $/год</th><th class="num">IELTS</th><th>Дедлайны</th><th class="num">Ближайший</th><th class="num">Студентов</th><th>Экзамен</th></tr></thead><tbody>${body||'<tr><td colspan="8" class="empty">Ничего не найдено.</td></tr>'}</tbody></table>`
+    <div class="tablebox">${S.unis.length?`<table><thead><tr><th>Вуз</th><th>Страна</th><th class="num">Обучение, $/год</th><th class="num">IELTS</th><th>Ближайший дедлайн</th><th class="num">Студентов</th></tr></thead><tbody>${body||`<tr><td colspan="6" class="empty">${!whole&&!nOurs?"Студенты пока никуда не подают — откройте «Весь каталог».":"Ничего не найдено."}</td></tr>`}</tbody></table>`
     :`<div class="empty"><b>${S.ready.unis?"Каталог вузов пуст":"Загружаю каталог…"}</b>${S.ready.unis?"Вуз с дедлайнами вносится один раз, а потом добавляется студентам галочками. Начните с «Вставить списком».":""}</div>`}</div>
-    <p class="note">Дедлайны меняются каждый год — сверяйте их с сайтом вуза в начале сезона.</p>`;
+    <p class="note">«Наши вузы» — те, куда подаёт хотя бы один студент. Дедлайны меняются каждый год — сверяйте их с сайтом вуза в начале сезона.${S.canWrite?' Много вузов сразу — <button class="linkbtn" type="button" id="bulk-uni">вставить списком</button>.':""}</p>`;
+}
+// Кто подаёт в вуз — по нажатию на число в колонке «Студентов»
+function uniStudsMenu(btn){
+  closeMenu();
+  const u=uniOf(btn.dataset.uniStuds);if(!u)return;
+  const ap=S.rawApps.filter(a=>a.uniId===u.id).map(a=>({a,s:studentOf(a.studentId)})).filter(x=>x.s).sort((x,y)=>(x.s.name||"").localeCompare(y.s.name||"","ru"));
+  const m=document.createElement("div");m.className="menu";m.id="st-menu";
+  m.innerHTML=`<div class="menu-h">${esc(u.name)}<br><span class="sub">подают: ${ap.length}</span></div>`+ap.map(({a,s})=>`<button type="button" data-sid="${esc(s.id)}">${esc(s.name)} <span class="sub">${esc([a.round,a.status].filter(Boolean).join(" · "))}</span></button>`).join("");
+  document.body.appendChild(m);
+  const r=btn.getBoundingClientRect();const w=m.offsetWidth,h=m.offsetHeight;
+  let x=r.right+window.scrollX-w,y=r.bottom+window.scrollY+4;
+  if(r.bottom+h>window.innerHeight-8)y=r.top+window.scrollY-h-4;
+  m.style.left=Math.max(8,x)+"px";m.style.top=Math.max(8,y)+"px";
+  m.querySelectorAll("[data-sid]").forEach(b=>b.onclick=()=>{closeMenu();studentSheet(b.dataset.sid,"unis")});
+  setTimeout(()=>document.addEventListener("click",outside),0);
 }
 
 function uniField(u,[c,t,l,,o]){const v=u[camel(c)]??"";const id="ux-"+c;const ph=o&&!Array.isArray(o)?` placeholder="${esc(o)}"`:"";
@@ -1227,8 +1382,10 @@ function bindView(){
   const on=(sel,ev,fn)=>{const el=$(sel);el&&el.addEventListener(ev,fn)};
   let t;const deb=(k,v)=>{clearTimeout(t);t=setTimeout(()=>{S.f[k]=v;const pos=document.activeElement&&document.activeElement.id;render();if(pos){const el=document.getElementById(pos);if(el){el.focus();try{el.setSelectionRange(el.value.length,el.value.length)}catch(e){}}}},200)};
   on("#f-sq","input",e=>deb("sq",e.target.value));on("#f-uq","input",e=>deb("uq",e.target.value));document.querySelectorAll("#main [data-school]").forEach(b=>b.onclick=()=>{S.f.school=b.dataset.school;try{localStorage.setItem("gg-school",S.f.school)}catch(e){}render()});
-  on("#f-upartner","click",()=>{S.f.upartner=S.f.upartner?"":"1";render()});on("#f-uedits","click",()=>{S.f.uedits=S.f.uedits?"":"1";render()});on("#f-ubudget","input",e=>deb("ubudget",e.target.value));on("#f-uielts","input",e=>deb("uielts",e.target.value));on("#f-aq","input",e=>deb("aq",e.target.value));
-  [["#f-gint","gint"],["#f-gcur","gcur"],["#f-gregion","gregion"],["#f-uregion","uregion"],["#f-ucountry","ucountry"],["#f-sint","sint"],["#f-strack","strack"],["#f-scur","scur"],["#f-astat","astat"],["#f-acur","acur"]].forEach(([s,k])=>on(s,"change",e=>{if(CUR_KEYS.includes(k))setMyCurator(e.target.value);else S.f[k]=e.target.value;render()}));
+  on("#f-upartner","click",()=>{S.f.upartner=S.f.upartner?"":"1";render()});on("#f-ufx","click",()=>{S.f.ufx=S.f.ufx?"":"1";render()});on("#f-ureset","click",()=>{S.f.ubudget=S.f.uielts=S.f.upartner="";render()});on("#f-bq","input",e=>deb("bq",e.target.value));
+  document.querySelectorAll("#main [data-uall]").forEach(b=>b.onclick=()=>{S.f.uall=b.dataset.uall;S.f.ucountry="";render()});document.querySelectorAll("#main [data-ucountry]").forEach(b=>b.onclick=()=>{S.f.ucountry=b.dataset.ucountry;render()});
+  document.querySelectorAll("#main [data-uni-studs]").forEach(b=>b.addEventListener("click",e=>{e.stopPropagation();uniStudsMenu(b)}));on("#f-uedits","click",()=>{S.f.uedits=S.f.uedits?"":"1";render()});on("#f-ubudget","input",e=>deb("ubudget",e.target.value));on("#f-uielts","input",e=>deb("uielts",e.target.value));on("#f-aq","input",e=>deb("aq",e.target.value));
+  [["#f-gint","gint"],["#f-gcur","gcur"],["#f-gregion","gregion"],["#f-uregion","uregion"],["#f-ucountry","ucountry"],["#f-sint","sint"],["#f-strack","strack"],["#f-scur","scur"],["#f-astat","astat"],["#f-acur","acur"],["#f-bcountry","bcountry"],["#f-btag","btag"],["#f-bstage","bstage"]].forEach(([s,k])=>on(s,"change",e=>{if(CUR_KEYS.includes(k))setMyCurator(e.target.value);else S.f[k]=e.target.value;render()}));
   on("#add-student","click",()=>studentSheet());on("#auto-folders","click",()=>autoFoldersSheet());on("#add-app","click",()=>pickUnis());on("#add-uni","click",()=>uniSheet());on("#bulk-uni","click",()=>bulkUniSheet());
   document.querySelectorAll("#main [data-intake]").forEach(el=>el.addEventListener("click",()=>{S.f.sint=el.dataset.intake;S.tab="students";render()}));
   document.querySelectorAll("#main [data-open-student]").forEach(el=>el.addEventListener("click",e=>{e.preventDefault();studentSheet(el.dataset.openStudent)}));
@@ -1236,6 +1393,7 @@ function bindView(){
   document.querySelectorAll("#main [data-add]").forEach(el=>el.addEventListener("click",()=>{const [sid,uid]=el.dataset.add.split("|");el.disabled=true;quickAdd(sid,uid)}));
   document.querySelectorAll("#main [data-open-class]").forEach(el=>el.addEventListener("click",()=>classSheet(el.dataset.openClass)));
   on("#add-class","click",()=>classSheet());
+  bindCat();
   document.querySelectorAll("#main [data-open-uni]").forEach(el=>el.addEventListener("click",()=>uniSheet(el.dataset.openUni)));
   document.querySelectorAll("#main [data-open-app]").forEach(el=>el.addEventListener("click",()=>appSheet(el.dataset.openApp)));
   on("#save-lists","click",async()=>{
@@ -1275,7 +1433,7 @@ const UNI_NULL=new Set(UNI_EXTRA.filter(x=>["int","dec","date"].includes(x[1])).
 const camel=c=>c.replace(/_([a-z])/g,(_,l)=>l.toUpperCase());
 const FIELD={communityNotes:"community_notes",createdByStudent:"created_by_student",lastStudentEditAt:"last_student_edit_at",studentEditsReviewedAt:"student_edits_reviewed_at",intlPortal:"intl_portal",studentNote:"student_note",addedBy:"added_by",uniType:"uni_type",tuitionUsdMin:"tuition_usd_min",tuitionUsdMax:"tuition_usd_max",coaUsd:"coa_usd",appFeeUsd:"app_fee_usd",costsNote:"costs_note",aidPolicy:"aid_policy",meetsNeed:"meets_need",fullRide:"full_ride",ieltsMin:"ielts_min",toeflMin:"toefl_min",duolingoMin:"duolingo_min",satPolicy:"sat_policy",entranceExam:"entrance_exam",admitRate:"admit_rate",admitRateIntl:"admit_rate_intl",feeWaiver:"fee_waiver",cssProfile:"css_profile",suppEssays:"supp_essays",aidDeadline:"aid_deadline",verifiedIntake:"verified_intake",verifiedAt:"verified_at",timeStart:"time_start",timeEnd:"time_end",classId:"class_id",studentEmail:"student_email",satRange:"sat_range",reportOpts:"report_opts",groupNotes:"group_notes",doneList:"done_list",curatorNotes:"curator_notes",unisNote:"unis_note",tierTitles:"tier_titles",deadlineText:"deadline_text",nextSteps:"next_steps",gradYear:"grad_year",studentId:"student_id",uniId:"uni_id",deadlineOverride:"deadline_override",createdAt:"created_at",updatedAt:"updated_at"};
 const COLS={
-  students:["name","student_email","checklist","report_opts","group_notes","metrics","targets","tier_titles","strategy","done_list","strengths","weaknesses","curator_notes","unis_note","grade","intake","type","track","school","status","curator","grad_year","major","countries","ielts","toefl","sat","ort","gpa","contact","parent","notes","personal","created_at","updated_at"],
+  students:["name","student_email","checklist","report_opts","group_notes","metrics","targets","tier_titles","strategy","done_list","strengths","weaknesses","curator_notes","unis_note","grade","intake","type","track","school","status","curator","grad_year","major","countries","ielts","toefl","sat","ort","gpa","contact","parent","notes","personal","stage","tags","created_at","updated_at"],
   unis:["name","country","link","rating","aid","deadline_text","deadlines","reqs","notes","created_at","updated_at","student_edits_reviewed_at",...UNI_EXTRA.map(x=>x[0])],
   apps:["student_id","uni_id","program","round","deadline_override","status","tier","note","grp","sort","rating","sat_range","reqs","deadline_text","aid","essay","supp","recs","docs","scores","result","amount","notes","created_at","updated_at"],
   tests:["student_id","date","test","kind","sections","total","comment","created_at","updated_at"],
