@@ -171,7 +171,10 @@ const nowHM=()=>{const d=new Date();return String(d.getHours()).padStart(2,"0")+
 const TASK_ST=["Не начато","В процессе","Готово"];
 const taskSt=t=>t.status||(t.done?"Готово":"Не начато");
 const ICONS={home:'<path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',schedule:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',unis:'<path d="M2 9l10-5 10 5-10 5z"/><path d="M6 11v5c3 2 9 2 12 0v-5"/>',plan:'<circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/>',tests:'<path d="M4 19V9M10 19V5M16 19v-7M22 19H2"/>',docs:'<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>'};
-const TABS=[["home","Главная"],["schedule","Расписание"],["unis","Вузы"],["plan","План"],["tests","Тесты"],["docs","Документы"]];
+// Документы скрыты по просьбе кураторов; чтобы вернуть вкладку, поставьте SHOW_DOCS=true (то же в index.html)
+const SHOW_DOCS=false;
+const TABS=[["home","Главная"],["schedule","Расписание"],["unis","Вузы"],["plan","План"],["tests","Тесты"],...(SHOW_DOCS?[["docs","Документы"]]:[])];
+if(!TABS.some(x=>x[0]===tab))tab="home";
 
 function render(){
   document.querySelectorAll("#bnav button").forEach(b=>b.setAttribute("aria-current",b.dataset.tab===tab?"page":"false"));
