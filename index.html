@@ -221,6 +221,13 @@ tbody tr:hover .gcell{background:var(--surface)}
 .cbar button{font:inherit;font-size:12.5px;border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:999px;padding:4px 10px;cursor:pointer}
 .cbar button .n{color:var(--muted)}.cbar button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff}.cbar button[aria-pressed="true"] .n{color:inherit;opacity:.8}
 .scopebar{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}.scopebar .seg{margin-bottom:12px}
+.unicell{min-width:220px;max-width:460px}
+.uchip{font:inherit;font-size:12px;font-weight:600;border:1px solid var(--line);background:var(--surface-2);color:var(--fg);border-radius:999px;padding:2px 9px;margin:2px 4px 2px 0;cursor:pointer;white-space:nowrap}
+.uchip.acc{background:var(--accent-soft);color:var(--accent);border-color:transparent}.uchip.good{background:var(--good-soft);color:var(--good);border-color:transparent}
+.uchip.add{border-style:dashed;background:none;color:var(--accent)}
+.dirsel{font-size:12.5px;padding:3px 6px}.dirsel.good{color:var(--good)}.dirsel.acc{color:var(--accent)}
+.dirinp{font-size:12.5px;padding:3px 6px;width:130px}
+.dirtable td{vertical-align:top}
 .linkbtn{background:none;border:0;padding:0;color:var(--accent);cursor:pointer;font:inherit;text-decoration:underline}
 .danger-zone{margin-top:22px;border-top:1px solid var(--line);padding-top:10px}.danger-zone summary{cursor:pointer;color:var(--crit)}
 @media (max-width:720px){.doc{grid-template-columns:1fr}.doc select{max-width:none}}
@@ -246,6 +253,7 @@ tbody tr:hover .gcell{background:var(--surface)}
     <nav role="tablist" id="tabs">
       <button role="tab" data-tab="summary" aria-selected="true">Сводка</button>
       <button role="tab" data-tab="students" aria-selected="false">Студенты<span class="n" id="n-students"></span></button>
+      <button role="tab" data-tab="dirs" aria-selected="false">Направления</button>
       <button role="tab" data-tab="sched" aria-selected="false">Расписание</button>
       <button role="tab" data-tab="unis" aria-selected="false">Вузы<span class="n" id="n-unis"></span></button>
     </nav>
@@ -289,7 +297,7 @@ const DEFAULT_TEACHERS=["Aziz","Dina","Saikal","Elnur","Beksultan","Umidjon"];
 const S={tab:"summary",students:[],apps:[],rawApps:[],unis:[],tests:[],tasks:[],meetings:[],classes:[],members:[],me:"",mocks:[],lists:{curators:[],teachers:DEFAULT_TEACHERS},db:null,canWrite:true,ready:{students:false,apps:false,unis:false,tests:false,tasks:false,meetings:false,classes:false,members:false},
   f:{gint:"Осень 2027",gcur:"",gregion:"",uq:"",uregion:"",ucountry:"",ubudget:"",uielts:"",sq:"",sint:"",stype:"",strack:"",school:"",scur:"",aq:"",astat:"",acur:"",mstud:""}};
 try{S.f.year=localStorage.getItem("gg-year")||""}catch(e){}
-try{const t=localStorage.getItem("gg-tab");if(t&&["summary","students","sched","unis"].includes(t))S.tab=t}catch(e){}
+try{const t=localStorage.getItem("gg-tab");if(t&&["summary","students","dirs","sched","unis"].includes(t))S.tab=t}catch(e){}
 
 const $=s=>document.querySelector(s);
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -330,8 +338,8 @@ function render(){
   const m=$("#main");
   const ro=S.canWrite?"":'<div class="banner">У вас доступ только на просмотр. Чтобы вносить изменения, попросите владельца дать вам уровень Contributor или выше.</div>';
   const mig=S.needsMigration?'<div class="banner">Нужно обновить базу: запустите в Supabase → SQL Editor файлы обновлений по порядку (update_02 … update_05.sql). Пока не запустите, часть разделов не работает.</div>':"";
-  const sbar=["summary","students","unis"].includes(S.tab)?schoolBar():"";
-  m.innerHTML=ro+mig+sbar+({summary:vSummary,students:vStudents,sched:vSched,unis:vUnis}[S.tab]||vSummary)();
+  const sbar=["summary","students","dirs","unis"].includes(S.tab)?schoolBar():"";
+  m.innerHTML=ro+mig+sbar+({summary:vSummary,students:vStudents,dirs:vDirs,sched:vSched,unis:vUnis}[S.tab]||vSummary)();
   bindView();
 }
 
@@ -505,6 +513,104 @@ function vOverview(){
     <section><h2>Просроченные задачи${overdue.length?` <span class="sub">· ${overdue.length}</span>`:""}</h2><div class="list">${overdue.length?overdue.slice(0,12).map(t=>`<div class="li" data-open-student="${esc(t.studentId)}"><div class="t"><b>${esc(studentName(t.studentId))}</b><div class="sub">${esc(t.title.split("\n")[0].slice(0,110))}</div></div><span class="chip crit">${fmtDate(t.due)}</span></div>`).join(""):'<div class="empty">Просроченных задач нет.</div>'}</div></section>
     <section><h2>Ниже цели по тестам</h2><div class="list">${below.length?below.slice(0,12).map(b=>`<div class="li" data-open-student="${esc(b.s.id)}"><div class="t"><b>${esc(b.s.name)}</b><div class="sub">${esc(b.t)}: ${esc(b.cur)} → цель ${esc(b.goal)}</div></div><span class="chip warn">−${esc(b.gap)}</span></div>`).join(""):'<div class="empty">Все, у кого указана цель, её достигли — или цели ещё не заданы.</div>'}</div></section>
   </div>`;
+}
+/* --- «Направления»: таблицы как в листе «Поступающие» — студенты направления, их вузы этого направления и свои колонки --- */
+// k — название направления (хранится в tracker_students.directions), match — какие вузы студента относятся к направлению,
+// cols — колонки: [ключ, подпись, варианты] (варианты по умолчанию — WORK; "text" — свободный текст). Значения — в direction_data[k][ключ].
+const CSCA_OPTS=["","Math","Physics","Math + Physics"];
+const DIRS=[
+  {k:"Common App",match:u=>u.country==="США",cols:[["essay","Эссе"],["supp","Доп. эссе"],["recs","Рекомендации"],["css","CSS Profile"]]},
+  {k:"Китай",match:u=>u.country==="Китай",cols:[["csca","CSCA",CSCA_OPTS],["med","Медсправка"],["docs","Документы"]]},
+  {k:"Гонконг",match:u=>u.country==="Гонконг",cols:[["docs","Документы"]]},
+  {k:"Корея",match:u=>u.country==="Южная Корея",cols:[["docs","Документы"],["apost","Апостиль"]]},
+  {k:"Партнёрские",match:u=>!!u.partner&&!/не продвига/i.test(u.partner),cols:[["provider","Провайдер","text"],["docs","Документы"]]},
+  {k:"Hungaricum",match:u=>u.country==="Венгрия",cols:[["docs","Документы"],["motiv","Мотивационное письмо"]]},
+  {k:"ОАЭ",match:u=>u.country==="ОАЭ",cols:[["docs","Документы"]]},
+  {k:"Катар",match:u=>u.country==="Катар",cols:[["docs","Документы"]]},
+];
+const dirOf=k=>DIRS.find(d=>d.k===k)||DIRS[0];
+try{const v=localStorage.getItem("gg-dir");if(DIRS.some(d=>d.k===v))S.f.dir=v}catch(e){}
+const inDir=(s,d)=>(s.directions||[]).includes(d.k);
+const dirApps=(s,d)=>S.apps.filter(a=>a.studentId===s.id&&d.match(uniOf(a.uniId)||{}));
+const shortUni=n=>String(n||"").replace(/\s*\([^)]*\)\s*/g," ").replace(/\s+/g," ").trim();
+const dirVal=(s,d,key)=>((s.directionData||{})[d.k]||{})[key]||"";
+function dirCell(s,d,[key,label,o]){
+  const v=dirVal(s,d,key),id=esc(s.id+"|"+key);
+  if(o==="text")return `<input class="dirinp" data-dset="${id}" value="${esc(v)}" aria-label="${esc(label)}"${ro()}>`;
+  const list=Array.isArray(o)?o:WORK;
+  const cls=v==="Готово"||v==="Не нужно"?"good":v==="В работе"||v==="На проверке"?"acc":"";
+  return `<select class="dirsel ${cls}" data-dset="${id}" aria-label="${esc(label)}"${ro()}>${list.map(x=>`<option${x===v||(!v&&x===list[0])?" selected":""}>${esc(x)}</option>`).join("")}</select>`;
+}
+function vDirs(){
+  const d=dirOf(S.f.dir),q=(S.f.dq||"").trim().toLowerCase();
+  const scope=S.students.filter(inSchool);
+  const st=scope.filter(s=>inDir(s,d)&&(!q||(s.name||"").toLowerCase().includes(q))).sort((a,b)=>(a.name||"").localeCompare(b.name||"","ru"));
+  const rows=st.map(s=>{const ap=dirApps(s,d).sort((a,b)=>(a.uni||"").localeCompare(b.uni||""));const sub=ap.filter(a=>SUBMITTED.has(a.status)).length;
+    const next=ap.filter(a=>!SUBMITTED.has(a.status)&&daysLeft(a.deadline)!=null&&daysLeft(a.deadline)>=0).sort((a,b)=>a.deadline.localeCompare(b.deadline))[0];
+    return `<tr><td><a href="#" data-open-student="${esc(s.id)}"><b>${esc(s.name)}</b></a>${schoolOf(s)!==SCHOOLS[0]?`<div class="sub">${esc(schoolOf(s))}</div>`:""}</td>
+      <td class="unicell">${ap.map(a=>`<button type="button" class="uchip${a.status==="Принят"?" good":SUBMITTED.has(a.status)?" acc":""}" data-open-app="${esc(a.id)}" title="${esc([a.uni,a.round,a.status].filter(Boolean).join(" · "))}">${esc(shortUni(a.uni))}</button>`).join("")}${S.canWrite?`<button type="button" class="uchip add" data-dir-add="${esc(s.id)}" title="Добавить вузы">+</button>`:""}</td>
+      ${d.cols.map(c=>`<td>${dirCell(s,d,c)}</td>`).join("")}
+      <td class="num">${ap.length?`${sub} из ${ap.length}`:""}${next?`<div class="sub">${fmtDate(next.deadline)} · ${esc(shortUni(next.uni))}</div>`:""}</td>
+      ${S.canWrite?`<td><button type="button" class="linkbtn" data-dir-rm="${esc(s.id)}" title="Убрать из направления «${esc(d.k)}»">убрать</button></td>`:""}</tr>`}).join("");
+  return `<div class="cbar" role="tablist" aria-label="Направление">${DIRS.map(x=>`<button type="button" role="tab" data-dir="${esc(x.k)}" aria-pressed="${x.k===d.k}">${esc(x.k)} <span class="n">${scope.filter(s=>inDir(s,x)).length}</span></button>`).join("")}</div>
+    <div class="toolbar"><input class="grow" id="f-dq" placeholder="Поиск студента" value="${esc(S.f.dq||"")}">
+      ${S.canWrite?`<button class="btn" type="button" id="dir-addst">+ Студент</button><button class="btn primary" type="button" id="dir-bulk">+ Вузы нескольким</button>`:""}</div>
+    <div class="tablebox"><table class="dirtable"><thead><tr><th>Имя</th><th>Университеты</th>${d.cols.map(c=>`<th>${esc(c[1])}</th>`).join("")}<th class="num">Заявки</th>${S.canWrite?"<th></th>":""}</tr></thead>
+    <tbody>${rows||`<tr><td colspan="${d.cols.length+4}" class="empty">В направлении «${esc(d.k)}» пока никого нет — нажмите «+ Студент».</td></tr>`}</tbody></table></div>
+    <p class="note">Вуз — нажмите, чтобы открыть заявку (статус, раунд). «Заявки» — сколько подано из всех вузов направления и ближайший дедлайн.</p>`;
+}
+// Добавить студентов в направление: сначала те, у кого уже есть вузы этого направления
+function dirAddStudents(d){
+  const cand=S.students.filter(s=>inSchool(s)&&!inDir(s,d)).map(s=>({s,n:dirApps(s,d).length})).sort((a,b)=>(b.n>0)-(a.n>0)||(a.s.name||"").localeCompare(b.s.name||"","ru"));
+  openSheet(`<h3>Добавить в «${esc(d.k)}»</h3><input id="da-q" placeholder="Поиск" style="width:100%;margin-bottom:8px">
+    <div class="picklist" id="da-list">${cand.map(({s,n})=>`<label class="pick" data-name="${esc((s.name||"").toLowerCase())}"><input type="checkbox" value="${esc(s.id)}"><span class="t"><b>${esc(s.name)}</b><span class="sub"> · ${esc([schoolOf(s),s.intake,n?"вузов направления: "+n:""].filter(Boolean).join(" · "))}</span></span></label>`).join("")||'<div class="empty">Все студенты уже в направлении.</div>'}</div>
+    <div class="actions"><span class="sp"></span><button class="btn" id="cancel">Отмена</button><button class="btn primary" id="da-go">Добавить</button></div>`,()=>{
+    $("#cancel").onclick=closeSheet;
+    $("#da-q").oninput=()=>{const q=val("da-q").toLowerCase();document.querySelectorAll("#da-list [data-name]").forEach(l=>l.hidden=!!q&&!l.dataset.name.includes(q))};
+    $("#da-go").onclick=async()=>{const ids=[...document.querySelectorAll("#da-list input:checked")].map(c=>c.value);if(!ids.length){toast("Отметьте студентов");return}
+      $("#da-go").disabled=true;closeSheet();await patchStudents(ids,s=>({directions:[...(s.directions||[]),d.k]}))};
+  });
+}
+// Вузы нескольким студентам сразу: отметить вузы (или взять список у студента) и студентов
+function dirBulkUnis(d,onlySid){
+  const studs=S.students.filter(s=>inSchool(s)&&inDir(s,d)).sort((a,b)=>(a.name||"").localeCompare(b.name||"","ru"));
+  if(onlySid&&!studs.some(s=>s.id===onlySid))studs.unshift(studentOf(onlySid));
+  const unis=S.unis.filter(d.match).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  const selU=new Set();
+  const drawU=()=>{const q=val("db-q").toLowerCase();$("#db-unis").innerHTML=unis.filter(u=>!q||(u.name||"").toLowerCase().includes(q)).map(u=>`<label class="pick"><input type="checkbox" data-u="${esc(u.id)}"${selU.has(u.id)?" checked":""}><span class="t"><b>${esc(u.name)}</b><span class="sub dl">${esc(dlSummary(u)||"")}</span></span></label>`).join("")||'<div class="empty">Ничего не найдено.</div>';
+    $("#db-unis").querySelectorAll("[data-u]").forEach(c=>c.onchange=()=>{c.checked?selU.add(c.dataset.u):selU.delete(c.dataset.u);cnt()})};
+  const cnt=()=>{$("#db-go").textContent=selU.size?`Добавить ${selU.size} ${selU.size===1?"вуз":"вуза(ов)"}`:"Добавить"};
+  openSheet(`<h3>Вузы направления «${esc(d.k)}»</h3><div class="grid">
+    <label class="full">Взять список вузов у студента <span class="sub">— отметит его вузы этого направления</span><select id="db-from"><option value=""></option>${S.students.filter(s=>dirApps(s,d).length).sort((a,b)=>(a.name||"").localeCompare(b.name||"","ru")).map(s=>`<option value="${esc(s.id)}">${esc(s.name)} (${dirApps(s,d).length})</option>`).join("")}</select></label>
+    <label class="full">Поиск вуза<input id="db-q" placeholder="Название"></label></div>
+    <div class="picklist" id="db-unis" style="max-height:240px"></div>
+    <div class="sec" style="margin-top:12px">Кому добавить</div>
+    <div class="picklist" id="db-st" style="max-height:200px">${studs.map(s=>`<label class="pick"><input type="checkbox" value="${esc(s.id)}"${s.id===onlySid?" checked":""}><span class="t"><b>${esc(s.name)}</b><span class="sub"> · вузов направления: ${dirApps(s,d).length}</span></span></label>`).join("")||'<div class="empty">В направлении пока никого нет.</div>'}</div>
+    <div class="grid" style="margin-top:10px"><label class="full">Тип подачи<select id="db-round"><option value="auto">Авто (ближайший дедлайн из каталога)</option>${ROUNDS.map(r=>`<option>${r}</option>`).join("")}</select></label></div>
+    <div class="actions"><span class="sp"></span><button class="btn" id="cancel">Отмена</button><button class="btn primary" id="db-go">Добавить</button></div>`,()=>{
+    drawU();$("#db-q").oninput=drawU;$("#cancel").onclick=closeSheet;
+    $("#db-from").onchange=()=>{const s=studentOf(val("db-from"));if(s)dirApps(s,d).forEach(a=>selU.add(a.uniId));drawU();cnt()};
+    $("#db-go").onclick=async()=>{
+      const ids=[...document.querySelectorAll("#db-st input:checked")].map(c=>c.value);
+      if(!selU.size){toast("Отметьте вузы");return}if(!ids.length){toast("Отметьте студентов");return}if(!S.db){toast("Нет связи с базой");return}
+      const btn=$("#db-go");btn.disabled=true;const pref=val("db-round");let added=0,had=0;
+      try{for(const sid of ids)for(const uid of selU){if(S.rawApps.some(a=>a.studentId===sid&&a.uniId===uid)){had++;continue}const u=uniOf(uid);if(!u)continue;
+          btn.textContent=`Добавляю ${added+1}…`;
+          await S.db.collection("apps").add({studentId:sid,uniId:uid,round:defaultRound(u,pref),status:"Планируем",supp:"Не начато",result:"—",createdAt:new Date().toISOString()});added++}
+        toast(`Добавлено: ${added}`+(had?` · уже были: ${had}`:""));await reload("apps");closeSheet()}catch(e){fail(e);btn.disabled=false}};
+  });
+}
+function bindDirs(){
+  const m=$("#main");
+  m.querySelectorAll("[data-dir]").forEach(b=>b.onclick=()=>{S.f.dir=b.dataset.dir;try{localStorage.setItem("gg-dir",S.f.dir)}catch(e){}render()});
+  if(!S.canWrite||!$("#dir-bulk"))return;
+  const d=dirOf(S.f.dir);
+  $("#dir-addst").onclick=()=>dirAddStudents(d);
+  $("#dir-bulk").onclick=()=>dirBulkUnis(d);
+  m.querySelectorAll("[data-dir-add]").forEach(b=>b.onclick=()=>dirBulkUnis(d,b.dataset.dirAdd));
+  m.querySelectorAll("[data-dir-rm]").forEach(b=>b.onclick=()=>{if(!confirmTwice(b,"точно?"))return;patchStudents([b.dataset.dirRm],s=>({directions:(s.directions||[]).filter(x=>x!==d.k)}))});
+  m.querySelectorAll("[data-dset]").forEach(el=>el.onchange=()=>{const [sid,key]=el.dataset.dset.split("|");
+    patchStudents([sid],s=>{const all={...(s.directionData||{})};all[d.k]={...(all[d.k]||{}),[key]:el.value.trim()};return {directionData:all}})});
 }
 function vStudents(){
   const f=S.f;const q=f.sq.trim().toLowerCase();
@@ -1333,7 +1439,7 @@ function bindView(){
   document.querySelectorAll("#main [data-open-student]").forEach(el=>el.addEventListener("click",e=>{e.preventDefault();studentSheet(el.dataset.openStudent)}));
   document.querySelectorAll("#main [data-open-class]").forEach(el=>el.addEventListener("click",()=>classSheet(el.dataset.openClass)));
   on("#add-class","click",()=>classSheet());
-  bindCat();
+  bindCat();bindDirs();on("#f-dq","input",e=>deb("dq",e.target.value));
   document.querySelectorAll("#main [data-open-uni]").forEach(el=>el.addEventListener("click",()=>uniSheet(el.dataset.openUni)));
   document.querySelectorAll("#main [data-open-app]").forEach(el=>el.addEventListener("click",()=>appSheet(el.dataset.openApp)));
 }
@@ -1365,9 +1471,9 @@ const UNI_EXTRA=[
 ];
 const UNI_NULL=new Set(UNI_EXTRA.filter(x=>["int","dec","date"].includes(x[1])).map(x=>x[0]));
 const camel=c=>c.replace(/_([a-z])/g,(_,l)=>l.toUpperCase());
-const FIELD={communityNotes:"community_notes",createdByStudent:"created_by_student",lastStudentEditAt:"last_student_edit_at",studentEditsReviewedAt:"student_edits_reviewed_at",intlPortal:"intl_portal",studentNote:"student_note",addedBy:"added_by",uniType:"uni_type",tuitionUsdMin:"tuition_usd_min",tuitionUsdMax:"tuition_usd_max",coaUsd:"coa_usd",appFeeUsd:"app_fee_usd",costsNote:"costs_note",aidPolicy:"aid_policy",meetsNeed:"meets_need",fullRide:"full_ride",ieltsMin:"ielts_min",toeflMin:"toefl_min",duolingoMin:"duolingo_min",satPolicy:"sat_policy",entranceExam:"entrance_exam",admitRate:"admit_rate",admitRateIntl:"admit_rate_intl",feeWaiver:"fee_waiver",cssProfile:"css_profile",suppEssays:"supp_essays",aidDeadline:"aid_deadline",verifiedIntake:"verified_intake",verifiedAt:"verified_at",timeStart:"time_start",timeEnd:"time_end",classId:"class_id",studentEmail:"student_email",satRange:"sat_range",reportOpts:"report_opts",groupNotes:"group_notes",doneList:"done_list",curatorNotes:"curator_notes",unisNote:"unis_note",tierTitles:"tier_titles",deadlineText:"deadline_text",nextSteps:"next_steps",gradYear:"grad_year",studentId:"student_id",uniId:"uni_id",deadlineOverride:"deadline_override",createdAt:"created_at",updatedAt:"updated_at"};
+const FIELD={directionData:"direction_data",communityNotes:"community_notes",createdByStudent:"created_by_student",lastStudentEditAt:"last_student_edit_at",studentEditsReviewedAt:"student_edits_reviewed_at",intlPortal:"intl_portal",studentNote:"student_note",addedBy:"added_by",uniType:"uni_type",tuitionUsdMin:"tuition_usd_min",tuitionUsdMax:"tuition_usd_max",coaUsd:"coa_usd",appFeeUsd:"app_fee_usd",costsNote:"costs_note",aidPolicy:"aid_policy",meetsNeed:"meets_need",fullRide:"full_ride",ieltsMin:"ielts_min",toeflMin:"toefl_min",duolingoMin:"duolingo_min",satPolicy:"sat_policy",entranceExam:"entrance_exam",admitRate:"admit_rate",admitRateIntl:"admit_rate_intl",feeWaiver:"fee_waiver",cssProfile:"css_profile",suppEssays:"supp_essays",aidDeadline:"aid_deadline",verifiedIntake:"verified_intake",verifiedAt:"verified_at",timeStart:"time_start",timeEnd:"time_end",classId:"class_id",studentEmail:"student_email",satRange:"sat_range",reportOpts:"report_opts",groupNotes:"group_notes",doneList:"done_list",curatorNotes:"curator_notes",unisNote:"unis_note",tierTitles:"tier_titles",deadlineText:"deadline_text",nextSteps:"next_steps",gradYear:"grad_year",studentId:"student_id",uniId:"uni_id",deadlineOverride:"deadline_override",createdAt:"created_at",updatedAt:"updated_at"};
 const COLS={
-  students:["name","student_email","checklist","report_opts","group_notes","metrics","targets","tier_titles","strategy","done_list","strengths","weaknesses","curator_notes","unis_note","grade","intake","type","track","school","status","curator","grad_year","major","countries","ielts","toefl","sat","ort","gpa","contact","parent","notes","personal","stage","tags","created_at","updated_at"],
+  students:["name","student_email","checklist","report_opts","group_notes","metrics","targets","tier_titles","strategy","done_list","strengths","weaknesses","curator_notes","unis_note","grade","intake","type","track","school","status","curator","grad_year","major","countries","ielts","toefl","sat","ort","gpa","contact","parent","notes","personal","stage","tags","directions","direction_data","created_at","updated_at"],
   unis:["name","country","link","rating","aid","deadline_text","deadlines","reqs","notes","created_at","updated_at","student_edits_reviewed_at",...UNI_EXTRA.map(x=>x[0])],
   apps:["student_id","uni_id","program","round","deadline_override","status","tier","note","grp","sort","rating","sat_range","reqs","deadline_text","aid","essay","supp","recs","docs","scores","result","amount","notes","created_at","updated_at"],
   tests:["student_id","date","test","kind","sections","total","comment","created_at","updated_at"],
