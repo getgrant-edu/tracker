@@ -228,6 +228,9 @@ tbody tr:hover .gcell{background:var(--surface)}
 .dirsel{font-size:12.5px;padding:3px 6px}.dirsel.good{color:var(--good)}.dirsel.acc{color:var(--accent)}
 .dirinp{font-size:12.5px;padding:3px 6px;width:130px}
 .dirtable td{vertical-align:top}
+.menu-sub{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);padding:6px 8px 2px}
+.menu-row{display:flex;gap:4px;padding:0 4px 4px}.menu-row button{flex:1;justify-content:center;border:1px solid var(--line)}
+.uchip.warn{background:var(--warn-soft);color:var(--warn);border-color:transparent}
 .linkbtn{background:none;border:0;padding:0;color:var(--accent);cursor:pointer;font:inherit;text-decoration:underline}
 .danger-zone{margin-top:22px;border-top:1px solid var(--line);padding-top:10px}.danger-zone summary{cursor:pointer;color:var(--crit)}
 @media (max-width:720px){.doc{grid-template-columns:1fr}.doc select{max-width:none}}
@@ -270,7 +273,6 @@ tbody tr:hover .gcell{background:var(--surface)}
 const COUNTRIES=["США","Великобритания","Канада","Австралия","Новая Зеландия","Сингапур","Гонконг","Китай","Южная Корея","Япония","Малайзия","ОАЭ","Катар","Турция","Нидерланды","Германия","Венгрия","Италия","Испания","Франция","Швейцария","Ирландия","Чехия","Латвия","Литва","Другое"];
 const ROUNDS=["Early","Regular","Rolling"]; // как в student.html и tracker_valid_round() (миграция 009)
 const WORK=["Не начато","В работе","На проверке","Готово","Не нужно"];
-const CHECK=[["essay","Основное эссе"],["recs","Рекомендации"],["transcript","Транскрипт / оценки"],["tests","Результаты тестов"],["translation","Перевод документов"],["finance","Финансовые документы"]];
 const ST_SHORT={"Планируем":"План","Готовим":"Готовим","Подано":"Подано","Интервью":"Интервью","Принят":"Принят","Лист ожидания":"Лист ож.","Отказ":"Отказ","Отозвано":"Отозвано"};
 const ST_CLS={"Планируем":"plan","Готовим":"prep","Подано":"sent","Интервью":"sent","Принят":"ok","Лист ожидания":"wait","Отказ":"no","Отозвано":"no"};
 const STATUS=["Планируем","Готовим","Подано","Интервью","Принят","Лист ожидания","Отказ","Отозвано"];
@@ -318,16 +320,12 @@ const toast=msg=>{const t=document.createElement("div");t.className="toast";t.te
 
 function dueChip(a){
   if(SUBMITTED.has(a.status))return `<span class="chip done">${esc(a.status)}</span>`;
-  const d=daysLeft(a.deadline);if(d==null)return '<span class="chip">нет даты</span>';
+  const d=daysLeft(a.deadline);if(d==null)return noRound(a)?'<span class="chip warn" title="Выберите раунд (Early / Regular / Rolling) — тогда трекер возьмёт дату из каталога">нет раунда</span>':'<span class="chip" title="Дата этого раунда в каталоге ещё не указана">нет даты</span>';
   if(d<0)return `<span class="chip done">прошёл</span>`;
   const cls=d<=7?"crit":d<=21?"warn":"";const txt=d===0?"сегодня":`${d} дн.`;
   return `<span class="chip ${cls}">${txt}</span>`;
 }
 function statusChip(s){if(!s)return"";const c=s==="Принят"?"good":s==="Отказ"||s==="Отозвано"?"done":SUBMITTED.has(s)?"acc":"";return `<span class="chip ${c}">${esc(s)}</span>`}
-function checkProg(s){const c=(s&&s.checklist)||{};let done=0,total=0;CHECK.forEach(([k])=>{const v=c[k]||"Не начато";if(v==="Не нужно")return;total++;if(v==="Готово")done++});return {done,total}}
-function progChip(s){if(!s)return"";const {done,total}=checkProg(s);return `<span class="chip ${total&&done===total?"good":done?"acc":""}" title="Общие документы готовы: ${done} из ${total}">${done}/${total}</span>`}
-function checkDots(s){const c=(s&&s.checklist)||{};return CHECK.map(([k,l])=>workDot(c[k],l)).join("")}
-function workDot(v,label){const c=v==="Готово"?"s3":v==="На проверке"?"s2":v==="В работе"?"s1":v==="Не нужно"?"na":"";return `<span class="dot ${c}" title="${esc(label)}: ${esc(v||"Не начато")}"></span>`}
 
 /* ---------- render ---------- */
 function render(){
@@ -474,13 +472,14 @@ function dlGroupMenu(btn,groups){
   const list=gr.apps.map(a=>({a,s:studentOf(a.studentId)})).filter(x=>x.s).sort((x,y)=>(x.s.name||"").localeCompare(y.s.name||"","ru"));
   const m=document.createElement("div");m.className="menu";m.id="st-menu";
   m.innerHTML=`<div class="menu-h">${esc(gr.uni)}<br><span class="sub">${esc([gr.round,fmtDate(gr.deadline)].filter(Boolean).join(" · "))}</span></div>`+
-    list.map(({a,s})=>`<button type="button" data-sid="${esc(s.id)}">${esc(s.name)} ${statusChip(a.status)}</button>`).join("");
+    list.map(({a,s})=>`<button type="button" data-sid="${esc(s.id)}">${esc(s.name)} ${statusChip(a.status)}</button>`).join("")+(S.canWrite?'<button type="button" data-bulkst="1"><b>Отметить статус нескольким…</b></button>':"");
   document.body.appendChild(m);
   const r=btn.getBoundingClientRect();const w=m.offsetWidth,h=m.offsetHeight;
   let x=Math.min(r.left+window.scrollX,window.scrollX+document.documentElement.clientWidth-w-8),y=r.bottom+window.scrollY+4;
   if(r.bottom+h>window.innerHeight-8)y=Math.max(window.scrollY+8,r.top+window.scrollY-h-4);
   m.style.left=Math.max(8,x)+"px";m.style.top=Math.max(8,y)+"px";
   m.querySelectorAll("[data-sid]").forEach(b=>b.onclick=()=>{closeMenu();studentSheet(b.dataset.sid,"unis")});
+  const bs=m.querySelector("[data-bulkst]");if(bs)bs.onclick=()=>{closeMenu();bulkStatusSheet(gr.apps,gr.uni+(gr.round?" · "+gr.round:""))};
   setTimeout(()=>document.addEventListener("click",outside),0);
 }
 let DL_GROUPS=[];
@@ -491,6 +490,7 @@ function vOverview(){
   const soon=groups.filter(g=>daysLeft(g.deadline)<=60);
   const d7=groups.filter(g=>daysLeft(g.deadline)<=7&&open(g));
   const noApps=st.filter(s=>!ap.some(a=>a.studentId===s.id));
+  const noRd=st.map(s=>({s,n:ap.filter(a=>a.studentId===s.id&&!SUBMITTED.has(a.status)&&noRound(a)).length})).filter(x=>x.n).sort((a,b)=>b.n-a.n);
   const admitted=ap.filter(a=>a.status==="Принят");
   const sub=ap.filter(a=>SUBMITTED.has(a.status)).length;
   const tiles=[[st.length,"студентов"],[ap.length?`${sub} / ${ap.length}`:"0","заявок подано / всего"],[d7.length,"дедлайнов ≤ 7 дней (не все подали)",d7.length>0],[admitted.length,"поступлений"]]
@@ -507,6 +507,8 @@ function vOverview(){
     <section><h2>Дедлайны по вузам <span class="sub">· ближайшие 60 дней</span></h2><div class="list">${upHtml}</div>
       <p class="note">Нажмите на вуз, чтобы увидеть, кто подаёт и с каким статусом. Все дедлайны вуза — во вкладке «Вузы».</p></section>
     <section><h2>Без вузов${noApps.length?` <span class="sub">· ${noApps.length}</span>`:""}</h2><div class="list">${noApps.length?names(noApps):'<div class="empty">У всех студентов есть вузы.</div>'}</div>
+      <h2 style="margin-top:20px">Вузы без раунда${noRd.length?` <span class="sub">· ${noRd.reduce((t,x)=>t+x.n,0)} у ${noRd.length} студ.</span>`:""}</h2><div class="list">${noRd.length?`<div class="li" style="cursor:default"><div class="t sub">${noRd.slice(0,40).map(({s,n})=>`<a href="#" data-open-unis="${esc(s.id)}">${esc(s.name)}</a> (${n})`).join(", ")}</div></div>`:'<div class="empty">У всех вузов выбран раунд.</div>'}</div>
+      <p class="note">Без раунда трекер не знает, какую дату брать, и дедлайн не попадает в сводку.</p>
       <h2 style="margin-top:20px">Давно без встречи <span class="sub">· 30+ дней${quiet.length?" · "+quiet.length:""}</span></h2><div class="list">${quiet.length?names(quiet):'<div class="empty">Со всеми встречались в последние 30 дней.</div>'}</div></section>
   </div>
   <div class="cols" style="margin-top:24px">
@@ -548,16 +550,16 @@ function vDirs(){
   const rows=st.map(s=>{const ap=dirApps(s,d).sort((a,b)=>(a.uni||"").localeCompare(b.uni||""));const sub=ap.filter(a=>SUBMITTED.has(a.status)).length;
     const next=ap.filter(a=>!SUBMITTED.has(a.status)&&daysLeft(a.deadline)!=null&&daysLeft(a.deadline)>=0).sort((a,b)=>a.deadline.localeCompare(b.deadline))[0];
     return `<tr><td><a href="#" data-open-student="${esc(s.id)}"><b>${esc(s.name)}</b></a>${schoolOf(s)!==SCHOOLS[0]?`<div class="sub">${esc(schoolOf(s))}</div>`:""}</td>
-      <td class="unicell">${ap.map(a=>`<button type="button" class="uchip${a.status==="Принят"?" good":SUBMITTED.has(a.status)?" acc":""}" data-open-app="${esc(a.id)}" title="${esc([a.uni,a.round,a.status].filter(Boolean).join(" · "))}">${esc(shortUni(a.uni))}</button>`).join("")}${S.canWrite?`<button type="button" class="uchip add" data-dir-add="${esc(s.id)}" title="Добавить вузы">+</button>`:""}</td>
+      <td class="unicell">${ap.map(a=>`<button type="button" class="uchip${a.status==="Принят"?" good":SUBMITTED.has(a.status)?" acc":noRound(a)?" warn":""}" data-app-menu="${esc(a.id)}" title="${esc([a.uni,noRound(a)?"раунд не выбран":a.round,a.deadline?fmtDate(a.deadline):"",a.status].filter(Boolean).join(" · "))}">${esc(shortUni(a.uni))}${!SUBMITTED.has(a.status)&&noRound(a)?" !":""}</button>`).join("")}${S.canWrite?`<button type="button" class="uchip add" data-dir-add="${esc(s.id)}" title="Добавить вузы">+</button>`:""}</td>
       ${d.cols.map(c=>`<td>${dirCell(s,d,c)}</td>`).join("")}
-      <td class="num">${ap.length?`${sub} из ${ap.length}`:""}${next?`<div class="sub">${fmtDate(next.deadline)} · ${esc(shortUni(next.uni))}</div>`:""}</td>
+      <td class="num">${ap.length?`${sub} из ${ap.length}`:""}${(n=>n?`<div><span class="chip warn" title="Нажмите на вуз с «!» и выберите раунд">без раунда: ${n}</span></div>`:"")(ap.filter(a=>!SUBMITTED.has(a.status)&&noRound(a)).length)}${next?`<div class="sub">${fmtDate(next.deadline)} · ${esc(shortUni(next.uni))}</div>`:""}</td>
       ${S.canWrite?`<td><button type="button" class="linkbtn" data-dir-rm="${esc(s.id)}" title="Убрать из направления «${esc(d.k)}»">убрать</button></td>`:""}</tr>`}).join("");
   return `<div class="cbar" role="tablist" aria-label="Направление">${DIRS.map(x=>`<button type="button" role="tab" data-dir="${esc(x.k)}" aria-pressed="${x.k===d.k}">${esc(x.k)} <span class="n">${scope.filter(s=>inDir(s,x)).length}</span></button>`).join("")}</div>
     <div class="toolbar"><input class="grow" id="f-dq" placeholder="Поиск студента" value="${esc(S.f.dq||"")}">
-      ${S.canWrite?`<button class="btn" type="button" id="dir-addst">+ Студент</button><button class="btn primary" type="button" id="dir-bulk">+ Вузы нескольким</button>`:""}</div>
+      ${S.canWrite?`<button class="btn" type="button" id="dir-addst">+ Студент</button><button class="btn" type="button" id="dir-status">Статус нескольким</button><button class="btn primary" type="button" id="dir-bulk">+ Вузы нескольким</button>`:""}</div>
     <div class="tablebox"><table class="dirtable"><thead><tr><th>Имя</th><th>Университеты</th>${d.cols.map(c=>`<th>${esc(c[1])}</th>`).join("")}<th class="num">Заявки</th>${S.canWrite?"<th></th>":""}</tr></thead>
     <tbody>${rows||`<tr><td colspan="${d.cols.length+4}" class="empty">В направлении «${esc(d.k)}» пока никого нет — нажмите «+ Студент».</td></tr>`}</tbody></table></div>
-    <p class="note">Вуз — нажмите, чтобы открыть заявку (статус, раунд). «Заявки» — сколько подано из всех вузов направления и ближайший дедлайн.</p>`;
+    <p class="note">Нажмите на вуз, чтобы поменять статус или раунд. «!» — раунд не выбран, поэтому дедлайн не считается. «Заявки» — сколько подано из всех вузов направления и ближайший дедлайн.</p>`;
 }
 // Добавить студентов в направление: сначала те, у кого уже есть вузы этого направления
 function dirAddStudents(d){
@@ -603,14 +605,65 @@ function dirBulkUnis(d,onlySid){
 function bindDirs(){
   const m=$("#main");
   m.querySelectorAll("[data-dir]").forEach(b=>b.onclick=()=>{S.f.dir=b.dataset.dir;try{localStorage.setItem("gg-dir",S.f.dir)}catch(e){}render()});
+  m.querySelectorAll("[data-app-menu]").forEach(b=>b.onclick=e=>{e.stopPropagation();appQuickMenu(b)});
   if(!S.canWrite||!$("#dir-bulk"))return;
   const d=dirOf(S.f.dir);
   $("#dir-addst").onclick=()=>dirAddStudents(d);
   $("#dir-bulk").onclick=()=>dirBulkUnis(d);
+  $("#dir-status").onclick=()=>bulkStatusSheet(S.students.filter(s=>inSchool(s)&&inDir(s,d)).flatMap(s=>dirApps(s,d)),"Статус нескольким · "+d.k);
   m.querySelectorAll("[data-dir-add]").forEach(b=>b.onclick=()=>dirBulkUnis(d,b.dataset.dirAdd));
   m.querySelectorAll("[data-dir-rm]").forEach(b=>b.onclick=()=>{if(!confirmTwice(b,"точно?"))return;patchStudents([b.dataset.dirRm],s=>({directions:(s.directions||[]).filter(x=>x!==d.k)}))});
   m.querySelectorAll("[data-dset]").forEach(el=>el.onchange=()=>{const [sid,key]=el.dataset.dset.split("|");
     patchStudents([sid],s=>{const all={...(s.directionData||{})};all[d.k]={...(all[d.k]||{}),[key]:el.value.trim()};return {directionData:all}})});
+}
+// Заявка без раунда: трекер не знает, какую дату из каталога брать, и дедлайн не считается
+const noRound=a=>!a.deadlineOverride&&!ROUNDS.includes(a.round);
+// Готовность — одно место: колонки направлений (Документы, Эссе, Медсправка…). Считаются только колонки-статусы (WORK).
+function dirProg(s){let done=0,total=0;const parts=[];
+  (s.directions||[]).forEach(k=>{const d=DIRS.find(x=>x.k===k);if(!d)return;
+    d.cols.filter(c=>!c[2]).forEach(([key,l])=>{const v=((s.directionData||{})[k]||{})[key]||"Не начато";if(v==="Не нужно")return;total++;if(v==="Готово")done++;parts.push(`${k}: ${l.toLowerCase()} — ${v.toLowerCase()}`)})});
+  return {done,total,parts}}
+function dirProgChip(s){const {done,total,parts}=dirProg(s);if(!total)return"";return `<span class="chip ${done===total?"good":done?"acc":""}" title="${esc("Готовность по направлениям:\n"+parts.join("\n"))}">${done}/${total}</span>`}
+// Быстрое меню заявки: статус и раунд в один клик (чипы вузов в «Направлениях»)
+function appQuickMenu(btn){
+  closeMenu();
+  const a=S.apps.find(x=>x.id===btn.dataset.appMenu);if(!a)return;
+  const m=document.createElement("div");m.className="menu";m.id="st-menu";
+  m.innerHTML=`<div class="menu-h">${esc(studentName(a.studentId))}<br><span class="sub">${esc([a.uni,ROUNDS.includes(a.round)?a.round:"",a.deadline?fmtDate(a.deadline):""].filter(Boolean).join(" · "))}</span></div>`+
+    (S.canWrite?`<div class="menu-sub">Раунд${noRound(a)?' <span class="chip warn">не выбран</span>':""}</div><div class="menu-row">${ROUNDS.map(r=>`<button type="button" data-rd="${r}"${r===a.round?' class="cur"':""}>${r}</button>`).join("")}</div>
+      <div class="menu-sub">Статус</div>${STATUS.map(st=>`<button type="button" data-st="${esc(st)}"${st===a.status?' class="cur"':""}><span class="st ${ST_CLS[st]} leg">${esc(ST_SHORT[st])}</span> ${esc(st)}</button>`).join("")}`:"")+
+    `<button type="button" data-open="1">Открыть заявку…</button>`;
+  document.body.appendChild(m);
+  const r=btn.getBoundingClientRect();const w=m.offsetWidth,h=m.offsetHeight;
+  let x=Math.min(r.left+window.scrollX,window.scrollX+document.documentElement.clientWidth-w-8),y=r.bottom+window.scrollY+4;
+  if(r.bottom+h>window.innerHeight-8)y=Math.max(window.scrollY+8,r.top+window.scrollY-h-4);
+  m.style.left=Math.max(8,x)+"px";m.style.top=Math.max(8,y)+"px";
+  const set=async data=>{closeMenu();try{await S.db.doc("apps/"+a.id).update({...data,updatedAt:new Date().toISOString()});toast("Сохранено");await reload("apps")}catch(e){fail(e)}};
+  m.querySelectorAll("[data-st]").forEach(b=>b.onclick=()=>{if(b.dataset.st!==a.status)set({status:b.dataset.st});else closeMenu()});
+  m.querySelectorAll("[data-rd]").forEach(b=>b.onclick=()=>{if(b.dataset.rd!==a.round)set({round:b.dataset.rd});else closeMenu()});
+  m.querySelector("[data-open]").onclick=()=>{closeMenu();appSheet(a.id)};
+  setTimeout(()=>document.addEventListener("click",outside),0);
+}
+// Статус сразу нескольким: один вуз → отметить студентов → поставить статус (например, всем «Подано» после дедлайна)
+function bulkStatusSheet(apps,title){
+  apps=apps.slice().sort((x,y)=>studentName(x.studentId).localeCompare(studentName(y.studentId),"ru"));
+  const byUni={};apps.forEach(a=>{(byUni[a.uniId]=byUni[a.uniId]||[]).push(a)});
+  const unis=Object.keys(byUni).map(uniOf).filter(Boolean).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  const one=unis.length===1;
+  const draw=()=>{const list=byUni[val("bs-uni")]||[];
+    $("#bs-list").innerHTML=list.map(a=>`<label class="pick"><input type="checkbox" value="${esc(a.id)}"${SUBMITTED.has(a.status)?"":" checked"}><span class="t"><b>${esc(studentName(a.studentId))}</b><span class="sub"> · ${esc([a.round||"раунд не выбран",a.status].join(" · "))}</span></span></label>`).join("")||'<div class="empty">Выберите вуз.</div>'};
+  openSheet(`<h3>${esc(title||"Статус нескольким")}</h3><div class="grid">
+    <label class="full">Вуз<select id="bs-uni">${one?"":'<option value=""></option>'}${unis.map(u=>`<option value="${esc(u.id)}">${esc(u.name)} (${byUni[u.id].length})</option>`).join("")}</select></label></div>
+    <div class="picklist" id="bs-list" style="max-height:260px"></div>
+    <div class="grid" style="margin-top:10px"><label>Поставить статус<select id="bs-st">${opts(STATUS,"Подано",false)}</select></label>
+      <label>Раунд <span class="sub">— не менять, если пусто</span><select id="bs-rd"><option value=""></option>${opts(ROUNDS,"",false)}</select></label></div>
+    <div class="actions"><span class="sp"></span><button class="btn" id="cancel">Отмена</button><button class="btn primary" id="bs-go">Применить</button></div>`,()=>{
+    draw();$("#bs-uni").onchange=draw;$("#cancel").onclick=closeSheet;
+    $("#bs-go").onclick=async()=>{const ids=[...document.querySelectorAll("#bs-list input:checked")].map(c=>c.value);if(!ids.length){toast("Отметьте студентов");return}
+      const st=val("bs-st"),rd=val("bs-rd");const btn=$("#bs-go");btn.disabled=true;let n=0;
+      try{for(const id of ids){btn.textContent=`Сохраняю ${++n}/${ids.length}…`;await S.db.doc("apps/"+id).update({status:st,...(rd?{round:rd}:{}),updatedAt:new Date().toISOString()})}
+        toast(`Изменено заявок: ${n}`);await reload("apps");closeSheet()}catch(e){fail(e);btn.disabled=false}};
+  });
 }
 function vStudents(){
   const f=S.f;const q=f.sq.trim().toLowerCase();
@@ -620,13 +673,13 @@ function vStudents(){
   const body=rows.map(s=>{const n=S.apps.filter(a=>a.studentId===s.id).length;
     const g=s.intake||"Не определено";let head="";
     if(g!==grp){grp=g;const cnt=rows.filter(x=>(x.intake||"Не определено")===g).length;head=`<tr class="grp"><td colspan="8">${esc(g)} <span class="sub">· ${cnt}</span></td></tr>`}
-    return head+`<tr data-open-student="${esc(s.id)}"><td><b>${esc(s.name)}</b>${schoolOf(s)!==SCHOOLS[0]?` <span class="chip warn">${esc(schoolOf(s))}</span>`:""}<div class="sub">${esc(s.major||"")}</div></td><td>${esc(s.grade||"")}${s.track?`<div>${trackChip(s.track)}</div>`:""}${s.status&&s.status!=="Активен"?` <span class="chip done">${esc(s.status)}</span>`:""}</td><td>${progChip(s)}${(()=>{const o=S.tasks.filter(t=>t.studentId===s.id&&!t.done);const late=o.filter(t=>t.due&&daysLeft(t.due)<0).length;return o.length?` <span class="chip ${late?"crit":""}" title="Открытых задач${late?", из них просрочено "+late:""}">${o.length} зад.</span>`:""})()}</td>
+    return head+`<tr data-open-student="${esc(s.id)}"><td><b>${esc(s.name)}</b>${schoolOf(s)!==SCHOOLS[0]?` <span class="chip warn">${esc(schoolOf(s))}</span>`:""}<div class="sub">${esc(s.major||"")}</div></td><td>${esc(s.grade||"")}${s.track?`<div>${trackChip(s.track)}</div>`:""}${s.status&&s.status!=="Активен"?` <span class="chip done">${esc(s.status)}</span>`:""}</td><td>${dirProgChip(s)}${(()=>{const o=S.tasks.filter(t=>t.studentId===s.id&&!t.done);const late=o.filter(t=>t.due&&daysLeft(t.due)<0).length;return o.length?` <span class="chip ${late?"crit":""}" title="Открытых задач${late?", из них просрочено "+late:""}">${o.length} зад.</span>`:""})()}</td>
     <td class="num">${scoreCell(s,"IELTS","ielts")}${bestScore(s.id,"TOEFL")||s.toefl?`<div class="sub">TOEFL ${scoreCell(s,"TOEFL","toefl")}</div>`:""}</td><td class="num">${scoreCell(s,"SAT","sat")}</td><td class="num">${scoreCell(s,"ОРТ","ort")}</td><td class="num">${n||""}</td><td class="sub">${esc(s.countries||"")}</td></tr>`}).join("");
   return `<div class="toolbar"><input class="grow" id="f-sq" placeholder="Поиск: имя, специальность, страна" value="${esc(f.sq)}">
     <select id="f-sint"><option value="">Все сезоны</option>${opts(INTAKES,f.sint,false)}</select>
     <select id="f-strack"><option value="">Грант и партнёрские</option>${opts(TRACKS,f.strack,false)}</select>
     ${S.canWrite?(SHOW_DOCS?'<button class="btn" id="auto-folders" title="Найти папки студентов на Google Диске по имени и привязать">Папки на Диске</button>':"")+'<button class="btn primary" id="add-student">+ Студент</button>':""}</div>
-    <div class="tablebox">${S.students.length?`<table><thead><tr><th>Студент</th><th>Класс / тип</th><th>Документы</th><th class="num">IELTS</th><th class="num">SAT</th><th class="num">ОРТ</th><th class="num">Заявок</th><th>Страны</th></tr></thead><tbody>${body||'<tr><td colspan="8" class="empty">Никто не подходит под фильтр.</td></tr>'}</tbody></table>`
+    <div class="tablebox">${S.students.length?`<table><thead><tr><th>Студент</th><th>Класс / тип</th><th>Готовность</th><th class="num">IELTS</th><th class="num">SAT</th><th class="num">ОРТ</th><th class="num">Заявок</th><th>Страны</th></tr></thead><tbody>${body||'<tr><td colspan="8" class="empty">Никто не подходит под фильтр.</td></tr>'}</tbody></table>`
       :`<div class="empty"><b>${S.ready.students?"Студентов пока нет":"Загружаю студентов…"}</b>${S.ready.students?"Нажмите «+ Студент», чтобы добавить первого.":""}</div>`}</div>`;
 }
 
@@ -708,8 +761,7 @@ function profileFields(s){return `<div class="grid">
     <label>Год выпуска школы<input id="s-grad" inputmode="numeric" value="${esc(s.gradYear)}"></label>
     <label class="full">Направление (специальность)<input id="s-major" value="${esc(s.major)}"></label>
     <label class="full">Целевые страны<textarea id="s-countries" style="min-height:52px">${esc(s.countries)}</textarea></label>
-    <div class="sec">Общие документы (одни на все вузы)</div>
-    ${CHECK.map(([k,l])=>`<label>${l}<select id="c-${k}">${opts(WORK,((s.checklist||{})[k])||"Не начато",false)}</select></label>`).join("")}
+    <p class="full note">Готовность документов (эссе, рекомендации, медсправка…) отмечается во вкладке «Направления» — по каждому направлению студента.</p>
     <div class="sec">Баллы <span class="sub" style="text-transform:none;letter-spacing:0">— берутся из вкладки «Тесты»: лучший официальный, а пока официальных нет — лучший пробный; без тестов можно вписать вручную</span></div>
     ${[["IELTS","ielts","decimal"],["TOEFL","toefl","numeric"],["SAT","sat","numeric"],["ОРТ","ort","numeric"]].map(([t,f,im])=>{const b=s.id&&bestScore(s.id,t);const off=b&&b.kind==="Официальный";
       return b?`<label>${t} <span class="sub">${off?"из тестов":"лучший пробный"}</span><input id="s-${f}" value="${esc(fmtScore(t,num(b.total)))}" readonly title="${off?"Официальный":"Пробный"} тест от ${fmtDate(b.date)} — меняется во вкладке «Тесты»"></label>`
@@ -721,7 +773,7 @@ function profileFields(s){return `<div class="grid">
     <label>Родитель<input id="s-parent" value="${esc(s.parent)}"></label>
     <p class="full note">Заметки о студенте ведите в журнале «Встречи»; то, что пойдёт в отчёт, — во вкладке «Для отчёта».</p>
   </div>`}
-const profileData=()=>({name:val("s-name"),checklist:Object.fromEntries(CHECK.map(([k])=>[k,val("c-"+k)])),grade:val("s-grade"),intake:val("s-intake"),school:val("s-school"),track:val("s-track"),status:val("s-status"),gradYear:val("s-grad"),major:val("s-major"),countries:val("s-countries"),
+const profileData=()=>({name:val("s-name"),grade:val("s-grade"),intake:val("s-intake"),school:val("s-school"),track:val("s-track"),status:val("s-status"),gradYear:val("s-grad"),major:val("s-major"),countries:val("s-countries"),
   ielts:val("s-ielts"),toefl:val("s-toefl"),sat:val("s-sat"),ort:val("s-ort"),gpa:val("s-gpa"),contact:val("s-contact"),studentEmail:val("s-semail").toLowerCase(),parent:val("s-parent"),updatedAt:new Date().toISOString()});
 function profileSheetNew(){
   openSheet(`<h3>Новый студент</h3><fieldset class="fs"${ro()}>${profileFields({status:"Активен",school:S.f.school||SCHOOLS[0],intake:S.f.school&&S.f.school!==SCHOOLS[0]?"Осень "+CYCLE_YEAR:""})}</fieldset>${actions(true)}`,()=>{
@@ -1145,7 +1197,6 @@ function reportHTML(id){
   const groups=uniGroups(s).filter(g=>g.list.length);const gnotes=s.groupNotes||{};
   const uniSec=groups.map((g,k)=>`<h3>${k+1}. ${esc(g.title)}</h3>${gnotes[g.key]?`<p>${esc(gnotes[g.key])}</p>`:""}${groupTable(s,g,T)}`).join("");
   const lm=S.meetings.filter(m=>m.studentId===id).sort((a,b)=>(b.date||"").localeCompare(a.date||"")).slice(0,3);
-  const {done,total}=checkProg(s);
   return `<div class="rep">
   <p class="r-title">Отчет и план подготовки к поступлению</p><p class="r-name">${esc(s.name)}</p><p class="r-cycle">${esc(cycleOf(s))}</p>
   ${s.major?`<p><b>Направление:</b> ${esc(s.major)}</p>`:""}${s.countries?`<p><b>Целевые страны:</b> ${esc(s.countries)}</p>`:""}
@@ -1155,7 +1206,7 @@ function reportHTML(id){
   <h2>2. ПОДГОТОВКА ПРОФИЛЯ К ЗАЯВКЕ</h2>
   <p><b>Что уже сделано:</b></p><ul>${lines(s.doneList).map(l=>`<li>${esc(l)}</li>`).join("")}${s.strengths?`<li><b>Сильные стороны:</b> ${esc(s.strengths)}</li>`:""}${s.weaknesses?`<li><b>Слабое место:</b> ${esc(s.weaknesses)}</li>`:""}</ul>
   ${prep.length?`<p><b>Что нужно сделать до подачи документов:</b></p><ul>${prep.map(t=>`<li>${t.done?"✓ ":""}${esc(t.title)}${t.due?` <i>(до ${fmtDate(t.due)})</i>`:""}</li>`).join("")}</ul>`:""}
-  ${total&&Object.values(s.checklist||{}).some(v=>v&&v!=="Не начато")?`<p><b>Общие документы:</b> готово ${done} из ${total} (${CHECK.map(([k,l])=>`${l.toLowerCase()} — ${((s.checklist||{})[k]||"не начато").toLowerCase()}`).join("; ")}).</p>`:""}
+  ${(p=>p.total?`<p><b>Готовность документов:</b> готово ${p.done} из ${p.total} (${esc(p.parts.join("; "))}).</p>`:"")(dirProg(s))}
   ${lines(s.curatorNotes).map(p=>`<p>${boldLead(p)}</p>`).join("")}
   ${groups.length?`<h2>3. СПИСОК ВУЗОВ И ИХ ТРЕБОВАНИЯ</h2>${s.unisNote?`<p><i><b>${esc(s.unisNote)}</b></i></p>`:""}${uniSec}`:""}
   ${tl.length?`<h2>4. ТАЙМЛАЙН</h2>${periodOrder(tl).map(p=>`<p><b>${esc(p)}</b></p><ul>${tl.filter(t=>(t.period||"Без периода")===p).map(t=>`<li>${t.done?"✓ ":""}${esc(t.title).replace(/\n/g,"<br>")}</li>`).join("")}</ul>`).join("")}`:""}
@@ -1193,8 +1244,7 @@ function appSheet(id){
     <label>Статус заявки<select id="a-status">${opts(STATUS,a.status,false)}</select></label>
     <label class="full">Свой дедлайн (если отличается от каталога)<input type="date" id="a-deadline" value="${esc(a.deadlineOverride||"")}"></label>
     <p class="full note" id="a-dl"></p>
-    <label>Доп. эссе<select id="a-supp">${opts(WORK,a.supp||"Не начато",false)}</select></label>
-    <p class="full note">Общие документы студента (эссе, рекомендации, транскрипт…) отмечаются один раз в его карточке: сейчас готово ${checkProg(studentOf(a.studentId)).done} из ${checkProg(studentOf(a.studentId)).total}.</p>
+    <p class="full note">Готовность (эссе, рекомендации, документы) — во вкладке «Направления».</p>
     <div class="sec">Результат</div>
     <label>Результат / стипендия<select id="a-result">${opts(RESULT,a.result||"—",false)}</select></label>
     <label>Сумма стипендии, $ в год<input id="a-amount" inputmode="numeric" value="${esc(a.amount)}"></label>
@@ -1218,7 +1268,7 @@ function appSheet(id){
     $("#cancel").onclick=backOrClose;if(!S.canWrite)return;
     $("#save").onclick=async()=>{
       const data={uniId:val("a-uniid"),program:val("a-prog"),round:val("a-round"),deadlineOverride:val("a-deadline"),status:val("a-status"),
-        supp:val("a-supp"),tier:val("a-tier"),note:val("a-note"),grp:val("a-grp"),sort:val("a-sort")===""?null:parseInt(val("a-sort"),10),rating:val("a-rating"),satRange:val("a-sat"),reqs:val("a-reqs"),deadlineText:$("#a-dltext").value.trim(),aid:$("#a-aid").value.trim(),result:val("a-result"),amount:val("a-amount"),notes:val("a-notes"),updatedAt:new Date().toISOString()};
+        tier:val("a-tier"),note:val("a-note"),grp:val("a-grp"),sort:val("a-sort")===""?null:parseInt(val("a-sort"),10),rating:val("a-rating"),satRange:val("a-sat"),reqs:val("a-reqs"),deadlineText:$("#a-dltext").value.trim(),aid:$("#a-aid").value.trim(),result:val("a-result"),amount:val("a-amount"),notes:val("a-notes"),updatedAt:new Date().toISOString()};
       await save("apps",id,data,a);await reload("apps");backOrClose();
     };
     delBtn(async()=>{await remove("apps",id);await reload("apps");backOrClose()});
@@ -1429,6 +1479,7 @@ function bindView(){
   let t;const deb=(k,v)=>{clearTimeout(t);t=setTimeout(()=>{S.f[k]=v;const pos=document.activeElement&&document.activeElement.id;render();if(pos){const el=document.getElementById(pos);if(el){el.focus();try{el.setSelectionRange(el.value.length,el.value.length)}catch(e){}}}},200)};
   on("#f-sq","input",e=>deb("sq",e.target.value));on("#f-uq","input",e=>deb("uq",e.target.value));document.querySelectorAll("#main [data-school]").forEach(b=>b.onclick=()=>{S.f.school=b.dataset.school;try{localStorage.setItem("gg-school",S.f.school)}catch(e){}render()});
   document.querySelectorAll("#main [data-year]").forEach(b=>b.onclick=()=>{S.f.year=b.dataset.year;try{localStorage.setItem("gg-year",S.f.year)}catch(e){}render()});
+  document.querySelectorAll("#main [data-open-unis]").forEach(el=>el.addEventListener("click",e=>{e.preventDefault();studentSheet(el.dataset.openUnis,"unis")}));
   document.querySelectorAll("#main [data-dlg]").forEach(el=>el.addEventListener("click",e=>{e.stopPropagation();dlGroupMenu(el,DL_GROUPS)}));
   on("#f-upartner","click",()=>{S.f.upartner=S.f.upartner?"":"1";render()});on("#f-ufx","click",()=>{S.f.ufx=S.f.ufx?"":"1";render()});on("#f-ureset","click",()=>{S.f.ubudget=S.f.uielts=S.f.upartner="";render()});on("#f-bq","input",e=>deb("bq",e.target.value));
   document.querySelectorAll("#main [data-uall]").forEach(b=>b.onclick=()=>{S.f.uall=b.dataset.uall;S.f.ucountry="";render()});document.querySelectorAll("#main [data-ucountry]").forEach(b=>b.onclick=()=>{S.f.ucountry=b.dataset.ucountry;render()});
