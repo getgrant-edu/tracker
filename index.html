@@ -204,19 +204,9 @@ tbody tr:hover .gcell{background:var(--surface)}
 .dact{display:flex;gap:6px;flex-wrap:wrap}.dact .btn{text-decoration:none}
 .docs-up{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px;border:1px dashed var(--line);border-radius:var(--radius);background:var(--surface-2)}
 .docs-up input[type=file]{flex:1;min-width:200px}
-.board{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(210px,1fr);gap:10px;overflow-x:auto;padding-bottom:6px;align-items:start}
-.bcol{background:var(--surface-2);border-radius:var(--radius);padding:10px;min-height:140px}
-.bcol h3{margin:0 0 2px;font-size:13px;font-weight:600}.bcol h3 .n{color:var(--muted);font-weight:500}
-.bcol.over{outline:2px dashed var(--accent);outline-offset:-2px}
-.bcard{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-top:8px;cursor:pointer;font-size:13.5px}
-.bcard[draggable="true"]{cursor:grab}.bcard.drag{opacity:.5}.bcard .sub{font-size:12px}
 .btags{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}.btags:empty{display:none}
-.bsel{width:100%;margin-top:6px;font-size:12.5px;padding:4px 6px}
-.bulkbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px;margin-bottom:10px;border-radius:var(--radius);background:var(--accent-soft)}
-.bulkbar[hidden]{display:none}
-.cattable select{font-size:13px;padding:4px 6px;max-width:190px}
 .chip.tag{display:inline-flex;align-items:center;gap:2px;margin:1px 0}.chip.tag button{border:0;background:none;color:inherit;cursor:pointer;padding:0 0 0 3px;font:inherit;line-height:1}
-.taginp{width:90px;font-size:12.5px;padding:3px 6px}.tagcell{min-width:170px}
+.taginp{width:90px;font-size:12px;padding:2px 6px}
 .cbar{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 12px}
 .cbar button{font:inherit;font-size:12.5px;border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:999px;padding:4px 10px;cursor:pointer}
 .cbar button .n{color:var(--muted)}.cbar button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff}.cbar button[aria-pressed="true"] .n{color:inherit;opacity:.8}
@@ -347,79 +337,8 @@ function schoolBar(){
   const years=[...new Set(S.students.map(yearOf).filter(Boolean))].sort();if(S.f.year&&!years.includes(S.f.year))years.push(S.f.year);
   return `<div class="scopebar"><div class="seg schoolbar" role="tablist" aria-label="Где учится">${["",...SCHOOLS].map(x=>`<button type="button" role="tab" data-school="${esc(x)}" aria-selected="${(S.f.school||"")===x}">${x?esc(x):"Все школы"} <span class="n">${n(x)}</span></button>`).join("")}</div>
     <div class="seg schoolbar" role="tablist" aria-label="Год поступления">${["",...years].map(y=>`<button type="button" role="tab" data-year="${esc(y)}" aria-selected="${(S.f.year||"")===y}">${y?esc(y):"Все годы"} <span class="n">${ny(y)}</span></button>`).join("")}</div></div>`}
-/* --- Сводка: «Обзор» / «Доска по этапам» / «Таблица» (студенты × страны, этап, тип, метки) --- */
-const STAGES=["Выбирает вузы","Готовит документы","Подаёт","Ждёт результат","Поступил","Не поступил / пауза"];
-const SVIEWS=[["overview","Обзор"],["board","Доска по этапам"],["table","Таблица"]];
-try{const v=localStorage.getItem("gg-sview");if(SVIEWS.some(x=>x[0]===v))S.f.sview=v}catch(e){}
-// Пока куратор не поставил этап сам, он считается по статусам заявок
-function autoStage(s){
-  const ap=S.apps.filter(a=>a.studentId===s.id);
-  if(!ap.length)return STAGES[0];
-  if(ap.some(a=>a.status==="Принят"))return "Поступил";
-  const live=ap.filter(a=>a.status!=="Отказ"&&a.status!=="Отозвано");
-  if(!live.length)return "Не поступил / пауза";
-  if(live.every(a=>SUBMITTED.has(a.status)))return "Ждёт результат";
-  if(live.some(a=>SUBMITTED.has(a.status)))return "Подаёт";
-  return "Готовит документы";
-}
-const stageOf=s=>STAGES.includes(s.stage)?s.stage:autoStage(s);
-const nUnis=n=>n+" "+(n%10===1&&n%100!==11?"вуз":n%10>=2&&n%10<=4&&(n%100<10||n%100>=20)?"вуза":"вузов");
-// Страны студента: по заявкам + из поля «Целевые страны» в профиле
-function studentCountries(s){
-  const set=new Set(S.apps.filter(a=>a.studentId===s.id).map(a=>a.country).filter(Boolean));const t=(s.countries||"").toLowerCase();
-  if(t)COUNTRIES.forEach(c=>{if(t.includes(c.toLowerCase().replace(/^южная /,"")))set.add(c)});
-  return [...set];
-}
+/* --- метки студента (видны и редактируются во «Направлениях») --- */
 const allTags=()=>[...new Set(S.students.flatMap(s=>s.tags||[]))].sort((a,b)=>a.localeCompare(b,"ru"));
-function catFiltered(){
-  const f=S.f,q=(f.bq||"").trim().toLowerCase(),bc=f.bcountry||"";
-  return S.students.filter(s=>inSchool(s)&&(!f.scur||(s.curator||"")===f.scur)&&(!q||(s.name||"").toLowerCase().includes(q))&&(!f.btag||(s.tags||[]).includes(f.btag))
-    &&(!bc||(bc.startsWith("r:")?studentCountries(s).some(c=>(REGION_OF[c]||"Другое")===bc.slice(2)):studentCountries(s).includes(bc)))
-    &&(!f.bstage||stageOf(s)===f.bstage)).sort((a,b)=>(a.name||"").localeCompare(b.name||"","ru"));
-}
-function catToolbar(withStage){
-  const f=S.f,bc=f.bcountry||"";
-  const cs=[...new Set(S.students.filter(inSchool).flatMap(studentCountries))].sort((a,b)=>a.localeCompare(b,"ru"));
-  return `<div class="toolbar"><input class="grow" id="f-bq" placeholder="Поиск студента" value="${esc(f.bq||"")}">
-    <select id="f-bcountry"><option value="">Все страны</option><optgroup label="Регион">${REGIONS.map(r=>`<option value="r:${esc(r)}"${bc==="r:"+r?" selected":""}>${esc(r)} — весь регион</option>`).join("")}</optgroup><optgroup label="Страна">${opts(cs,bc.startsWith("r:")?"":bc,false)}</optgroup></select>
-    <select id="f-btag"><option value="">Все метки</option>${opts(allTags(),f.btag,false)}</select>
-    ${withStage?`<select id="f-bstage"><option value="">Все этапы</option>${opts(STAGES,f.bstage,false)}</select>`:""}</div>`;
-}
-const stageSelect=(s,attr,cls)=>`<select ${attr}="${esc(s.id)}"${cls?` class="${cls}"`:""} aria-label="Этап"${ro()}>${STAGES.map(g=>`<option${g===stageOf(s)?" selected":""}>${esc(g)}</option>`).join("")}${s.stage?'<option value="">↺ определять по заявкам</option>':""}</select>`;
-const autoMark=s=>s.stage?"":'<span class="chip" title="Этап определён по статусам заявок — выберите свой, если он другой">авто</span>';
-function bCard(s){
-  const n=S.apps.filter(a=>a.studentId===s.id).length,cs=studentCountries(s);
-  return `<div class="bcard"${S.canWrite?' draggable="true"':""} data-card="${esc(s.id)}"><b>${esc(s.name)}</b>
-    <div class="sub">${esc([cs.slice(0,3).join(", ")+(cs.length>3?" +"+(cs.length-3):""),n?nUnis(n):"нет вузов"].filter(Boolean).join(" · "))}</div>
-    <div class="btags">${autoMark(s)}${trackChip(s.track)}${(s.tags||[]).map(t=>`<span class="chip">${esc(t)}</span>`).join("")}</div>
-    ${S.canWrite?stageSelect(s,"data-stage-of","bsel"):""}</div>`;
-}
-function vBoard(){
-  const st=catFiltered();
-  const cols=STAGES.map(g=>{const list=st.filter(s=>stageOf(s)===g);
-    return `<section class="bcol" data-drop="${esc(g)}"><h3>${esc(g)} <span class="n">${list.length}</span></h3>${list.map(bCard).join("")||'<p class="note" style="margin:6px 0 0">—</p>'}</section>`}).join("");
-  return catToolbar(false)+`<div class="board">${cols}</div>
-    <p class="note">Перетащите карточку в другую колонку или выберите этап внизу карточки. Пока этап не выбран вручную, трекер ставит его сам по статусам заявок — такие карточки помечены «авто».</p>`;
-}
-function vCatTable(){
-  const st=catFiltered(),sel=S.bsel||(S.bsel=new Set());[...sel].forEach(id=>{if(!st.some(s=>s.id===id))sel.delete(id)});
-  const rows=st.map(s=>{const cs=studentCountries(s),n=S.apps.filter(a=>a.studentId===s.id).length;
-    return `<tr>${S.canWrite?`<td><input type="checkbox" data-bpick="${esc(s.id)}"${sel.has(s.id)?" checked":""} aria-label="Выбрать ${esc(s.name)}"></td>`:""}
-      <td><a href="#" data-open-student="${esc(s.id)}"><b>${esc(s.name)}</b></a><div class="sub">${esc([schoolOf(s),s.intake].filter(Boolean).join(" · "))}</div></td>
-      <td>${cs.map(c=>`<span class="chip">${esc(c)}</span>`).join(" ")||'<span class="sub">—</span>'}</td>
-      <td class="num">${n||""}</td>
-      <td>${stageSelect(s,"data-set-stage")} ${autoMark(s)}</td>
-      <td><select data-set-track="${esc(s.id)}" aria-label="Тип поступления"${ro()}>${opts(TRACKS,s.track)}</select></td>
-      <td class="tagcell">${(s.tags||[]).map(t=>`<span class="chip tag">${esc(t)}${S.canWrite?`<button type="button" data-untag="${esc(s.id)}" data-tag="${esc(t)}" aria-label="Убрать метку ${esc(t)}">×</button>`:""}</span>`).join(" ")}${S.canWrite?` <input class="taginp" data-addtag="${esc(s.id)}" list="tag-list" placeholder="+ метка" aria-label="Добавить метку">`:""}</td></tr>`}).join("");
-  const bulk=S.canWrite?`<div class="bulkbar" id="bulkbar"${sel.size?"":" hidden"}><b id="bulk-n">Выбрано: ${sel.size}</b>
-      <select id="bulk-stage" aria-label="Поставить этап"><option value="">Поставить этап…</option>${opts(STAGES,"",false)}</select>
-      <input id="bulk-tag" list="tag-list" placeholder="метка" style="width:130px"><button class="btn" type="button" id="bulk-tag-add">+ метку</button><button class="btn" type="button" id="bulk-tag-del">− метку</button>
-      <button class="linkbtn" type="button" id="bulk-clear">снять выбор</button></div>`:"";
-  return catToolbar(true)+bulk+`<datalist id="tag-list">${allTags().map(t=>`<option value="${esc(t)}">`).join("")}</datalist>
-    <div class="tablebox"><table class="cattable"><thead><tr>${S.canWrite?'<th><input type="checkbox" id="bpick-all" aria-label="Выбрать всех"></th>':""}<th>Студент</th><th>Страны</th><th class="num">Вузов</th><th>Этап</th><th>Тип поступления</th><th>Метки</th></tr></thead>
-    <tbody>${rows||`<tr><td colspan="7" class="empty">Никого не нашлось.</td></tr>`}</tbody></table></div>
-    <p class="note">Страны — по заявкам и полю «Целевые страны» в профиле. Отметьте студентов галочками, чтобы разом поставить этап или метку. Метку можно вписать любую — она появится в фильтре «Все метки».</p>`;
-}
 // Сохранить поля у нескольких студентов: fn(s) → изменения или null (пропустить)
 async function patchStudents(ids,fn){
   if(!S.db){toast("Нет связи с базой");return 0}
@@ -428,38 +347,7 @@ async function patchStudents(ids,fn){
   if(n)toast(ids.length>1?"Изменено у студентов: "+n:"Сохранено");
   render();reload("students");return n;
 }
-function bindCat(){
-  const m=$("#main");
-  m.querySelectorAll("[data-sview]").forEach(b=>b.onclick=()=>{S.f.sview=b.dataset.sview;try{localStorage.setItem("gg-sview",S.f.sview)}catch(e){}render()});
-  m.querySelectorAll("[data-card]").forEach(c=>c.addEventListener("click",e=>{if(!e.target.closest("select"))studentSheet(c.dataset.card)}));
-  if(!S.canWrite)return;
-  const setStage=(id,v)=>patchStudents([id],s=>(s.stage||"")===v?null:{stage:v});
-  const addTag=(ids,t)=>{t=t.trim().replace(/\s+/g," ").slice(0,40);if(!t)return;patchStudents(ids,s=>(s.tags||[]).includes(t)?null:{tags:[...(s.tags||[]),t]})};
-  const delTag=(ids,t)=>patchStudents(ids,s=>(s.tags||[]).includes(t)?{tags:(s.tags||[]).filter(x=>x!==t)}:null);
-  m.querySelectorAll("[data-stage-of],[data-set-stage]").forEach(el=>el.onchange=()=>setStage(el.dataset.stageOf||el.dataset.setStage,el.value));
-  m.querySelectorAll("[data-set-track]").forEach(el=>el.onchange=()=>patchStudents([el.dataset.setTrack],()=>({track:el.value})));
-  m.querySelectorAll("[data-addtag]").forEach(el=>el.onchange=()=>addTag([el.dataset.addtag],el.value));
-  m.querySelectorAll("[data-untag]").forEach(b=>b.onclick=()=>delTag([b.dataset.untag],b.dataset.tag));
-  // галочки и действия над выбранными
-  const sel=S.bsel||(S.bsel=new Set());
-  const upd=()=>{const bar=$("#bulkbar");if(bar){bar.hidden=!sel.size;$("#bulk-n").textContent="Выбрано: "+sel.size}};
-  m.querySelectorAll("[data-bpick]").forEach(c=>c.onchange=()=>{c.checked?sel.add(c.dataset.bpick):sel.delete(c.dataset.bpick);upd()});
-  const all=$("#bpick-all");if(all)all.onchange=()=>{m.querySelectorAll("[data-bpick]").forEach(c=>{c.checked=all.checked;all.checked?sel.add(c.dataset.bpick):sel.delete(c.dataset.bpick)});upd()};
-  const bs=$("#bulk-stage");if(bs)bs.onchange=()=>{if(bs.value)patchStudents([...sel],s=>s.stage===bs.value?null:{stage:bs.value})};
-  const tagOf=()=>{const t=val("bulk-tag");if(!t)toast("Впишите метку");return t};
-  const ba=$("#bulk-tag-add");if(ba)ba.onclick=()=>{const t=tagOf();if(t)addTag([...sel],t)};
-  const bd=$("#bulk-tag-del");if(bd)bd.onclick=()=>{const t=tagOf();if(t)delTag([...sel],t)};
-  const bx=$("#bulk-clear");if(bx)bx.onclick=()=>{sel.clear();render()};
-  // доска: перетаскивание карточек между колонками
-  m.querySelectorAll("[data-card]").forEach(c=>{c.ondragstart=e=>{e.dataTransfer.setData("text/plain",c.dataset.card);c.classList.add("drag")};c.ondragend=()=>c.classList.remove("drag")});
-  m.querySelectorAll("[data-drop]").forEach(col=>{col.ondragover=e=>{e.preventDefault();col.classList.add("over")};col.ondragleave=e=>{if(!col.contains(e.relatedTarget))col.classList.remove("over")};
-    col.ondrop=e=>{e.preventDefault();col.classList.remove("over");const id=e.dataTransfer.getData("text/plain"),s=studentOf(id);if(s&&stageOf(s)!==col.dataset.drop)setStage(id,col.dataset.drop)}});
-}
-function vSummary(){
-  const v=S.f.sview||"overview";
-  return `<div class="seg2" role="tablist" aria-label="Вид сводки">${SVIEWS.map(([k,l])=>`<button type="button" role="tab" data-sview="${k}" aria-selected="${v===k}">${l}</button>`).join("")}</div>`+
-    (v==="board"?vBoard():v==="table"?vCatTable():vOverview());
-}
+const vSummary=()=>vOverview();
 
 // Дедлайны сгруппированы по вузу и раунду: одна строка — один вуз, внутри все студенты, кто туда подаёт
 function deadlineGroups(apps){
@@ -546,16 +434,19 @@ function dirCell(s,d,[key,label,o]){
 function vDirs(){
   const d=dirOf(S.f.dir),q=(S.f.dq||"").trim().toLowerCase();
   const scope=S.students.filter(inSchool);
-  const st=scope.filter(s=>inDir(s,d)&&(!q||(s.name||"").toLowerCase().includes(q))).sort((a,b)=>(a.name||"").localeCompare(b.name||"","ru"));
+  const st=scope.filter(s=>inDir(s,d)&&(!q||(s.name||"").toLowerCase().includes(q))&&(!S.f.btag||(s.tags||[]).includes(S.f.btag))).sort((a,b)=>(a.name||"").localeCompare(b.name||"","ru"));
   const rows=st.map(s=>{const ap=dirApps(s,d).sort((a,b)=>(a.uni||"").localeCompare(b.uni||""));const sub=ap.filter(a=>SUBMITTED.has(a.status)).length;
     const next=ap.filter(a=>!SUBMITTED.has(a.status)&&daysLeft(a.deadline)!=null&&daysLeft(a.deadline)>=0).sort((a,b)=>a.deadline.localeCompare(b.deadline))[0];
-    return `<tr><td><a href="#" data-open-student="${esc(s.id)}"><b>${esc(s.name)}</b></a>${schoolOf(s)!==SCHOOLS[0]?`<div class="sub">${esc(schoolOf(s))}</div>`:""}</td>
+    return `<tr><td><a href="#" data-open-student="${esc(s.id)}"><b>${esc(s.name)}</b></a>${schoolOf(s)!==SCHOOLS[0]?`<div class="sub">${esc(schoolOf(s))}</div>`:""}
+        <div class="btags">${(s.tags||[]).map(t=>`<span class="chip tag">${esc(t)}${S.canWrite?`<button type="button" data-untag="${esc(s.id)}" data-tag="${esc(t)}" aria-label="Убрать метку ${esc(t)}">×</button>`:""}</span>`).join("")}${S.canWrite?`<input class="taginp" data-addtag="${esc(s.id)}" list="tag-list" placeholder="+ метка" aria-label="Добавить метку">`:""}</div></td>
       <td class="unicell">${ap.map(a=>`<button type="button" class="uchip${a.status==="Принят"?" good":SUBMITTED.has(a.status)?" acc":noRound(a)?" warn":""}" data-app-menu="${esc(a.id)}" title="${esc([a.uni,noRound(a)?"раунд не выбран":a.round,a.deadline?fmtDate(a.deadline):"",a.status].filter(Boolean).join(" · "))}">${esc(shortUni(a.uni))}${!SUBMITTED.has(a.status)&&noRound(a)?" !":""}</button>`).join("")}${S.canWrite?`<button type="button" class="uchip add" data-dir-add="${esc(s.id)}" title="Добавить вузы">+</button>`:""}</td>
       ${d.cols.map(c=>`<td>${dirCell(s,d,c)}</td>`).join("")}
       <td class="num">${ap.length?`${sub} из ${ap.length}`:""}${(n=>n?`<div><span class="chip warn" title="Нажмите на вуз с «!» и выберите раунд">без раунда: ${n}</span></div>`:"")(ap.filter(a=>!SUBMITTED.has(a.status)&&noRound(a)).length)}${next?`<div class="sub">${fmtDate(next.deadline)} · ${esc(shortUni(next.uni))}</div>`:""}</td>
       ${S.canWrite?`<td><button type="button" class="linkbtn" data-dir-rm="${esc(s.id)}" title="Убрать из направления «${esc(d.k)}»">убрать</button></td>`:""}</tr>`}).join("");
   return `<div class="cbar" role="tablist" aria-label="Направление">${DIRS.map(x=>`<button type="button" role="tab" data-dir="${esc(x.k)}" aria-pressed="${x.k===d.k}">${esc(x.k)} <span class="n">${scope.filter(s=>inDir(s,x)).length}</span></button>`).join("")}</div>
+    <datalist id="tag-list">${allTags().map(t=>`<option value="${esc(t)}">`).join("")}</datalist>
     <div class="toolbar"><input class="grow" id="f-dq" placeholder="Поиск студента" value="${esc(S.f.dq||"")}">
+      ${allTags().length?`<select id="f-btag"><option value="">Все метки</option>${opts(allTags(),S.f.btag,false)}</select>`:""}
       ${S.canWrite?`<button class="btn" type="button" id="dir-addst">+ Студент</button><button class="btn" type="button" id="dir-status">Статус нескольким</button><button class="btn primary" type="button" id="dir-bulk">+ Вузы нескольким</button>`:""}</div>
     <div class="tablebox"><table class="dirtable"><thead><tr><th>Имя</th><th>Университеты</th>${d.cols.map(c=>`<th>${esc(c[1])}</th>`).join("")}<th class="num">Заявки</th>${S.canWrite?"<th></th>":""}</tr></thead>
     <tbody>${rows||`<tr><td colspan="${d.cols.length+4}" class="empty">В направлении «${esc(d.k)}» пока никого нет — нажмите «+ Студент».</td></tr>`}</tbody></table></div>
@@ -613,6 +504,8 @@ function bindDirs(){
   $("#dir-status").onclick=()=>bulkStatusSheet(S.students.filter(s=>inSchool(s)&&inDir(s,d)).flatMap(s=>dirApps(s,d)),"Статус нескольким · "+d.k);
   m.querySelectorAll("[data-dir-add]").forEach(b=>b.onclick=()=>dirBulkUnis(d,b.dataset.dirAdd));
   m.querySelectorAll("[data-dir-rm]").forEach(b=>b.onclick=()=>{if(!confirmTwice(b,"точно?"))return;patchStudents([b.dataset.dirRm],s=>({directions:(s.directions||[]).filter(x=>x!==d.k)}))});
+  m.querySelectorAll("[data-addtag]").forEach(el=>el.onchange=()=>{const t=el.value.trim().replace(/\s+/g," ").slice(0,40);if(t)patchStudents([el.dataset.addtag],s=>(s.tags||[]).includes(t)?null:{tags:[...(s.tags||[]),t]})});
+  m.querySelectorAll("[data-untag]").forEach(b=>b.onclick=()=>patchStudents([b.dataset.untag],s=>({tags:(s.tags||[]).filter(x=>x!==b.dataset.tag)})));
   m.querySelectorAll("[data-dset]").forEach(el=>el.onchange=()=>{const [sid,key]=el.dataset.dset.split("|");
     patchStudents([sid],s=>{const all={...(s.directionData||{})};all[d.k]={...(all[d.k]||{}),[key]:el.value.trim()};return {directionData:all}})});
 }
@@ -1484,13 +1377,13 @@ function bindView(){
   on("#f-upartner","click",()=>{S.f.upartner=S.f.upartner?"":"1";render()});on("#f-ufx","click",()=>{S.f.ufx=S.f.ufx?"":"1";render()});on("#f-ureset","click",()=>{S.f.ubudget=S.f.uielts=S.f.upartner="";render()});on("#f-bq","input",e=>deb("bq",e.target.value));
   document.querySelectorAll("#main [data-uall]").forEach(b=>b.onclick=()=>{S.f.uall=b.dataset.uall;S.f.ucountry="";render()});document.querySelectorAll("#main [data-ucountry]").forEach(b=>b.onclick=()=>{S.f.ucountry=b.dataset.ucountry;render()});
   document.querySelectorAll("#main [data-uni-studs]").forEach(b=>b.addEventListener("click",e=>{e.stopPropagation();uniStudsMenu(b)}));on("#f-uedits","click",()=>{S.f.uedits=S.f.uedits?"":"1";render()});on("#f-ubudget","input",e=>deb("ubudget",e.target.value));on("#f-uielts","input",e=>deb("uielts",e.target.value));on("#f-aq","input",e=>deb("aq",e.target.value));
-  [["#f-gint","gint"],["#f-gcur","gcur"],["#f-gregion","gregion"],["#f-uregion","uregion"],["#f-ucountry","ucountry"],["#f-sint","sint"],["#f-strack","strack"],["#f-scur","scur"],["#f-astat","astat"],["#f-acur","acur"],["#f-bcountry","bcountry"],["#f-btag","btag"],["#f-bstage","bstage"]].forEach(([s,k])=>on(s,"change",e=>{if(CUR_KEYS.includes(k))setMyCurator(e.target.value);else S.f[k]=e.target.value;render()}));
+  [["#f-gint","gint"],["#f-gcur","gcur"],["#f-gregion","gregion"],["#f-uregion","uregion"],["#f-ucountry","ucountry"],["#f-sint","sint"],["#f-strack","strack"],["#f-scur","scur"],["#f-astat","astat"],["#f-acur","acur"],["#f-btag","btag"]].forEach(([s,k])=>on(s,"change",e=>{if(CUR_KEYS.includes(k))setMyCurator(e.target.value);else S.f[k]=e.target.value;render()}));
   on("#add-student","click",()=>studentSheet());on("#auto-folders","click",()=>autoFoldersSheet());on("#add-app","click",()=>pickUnis());on("#add-uni","click",()=>uniSheet());on("#bulk-uni","click",()=>bulkUniSheet());
   document.querySelectorAll("#main [data-intake]").forEach(el=>el.addEventListener("click",()=>{S.f.sint=el.dataset.intake;S.tab="students";render()}));
   document.querySelectorAll("#main [data-open-student]").forEach(el=>el.addEventListener("click",e=>{e.preventDefault();studentSheet(el.dataset.openStudent)}));
   document.querySelectorAll("#main [data-open-class]").forEach(el=>el.addEventListener("click",()=>classSheet(el.dataset.openClass)));
   on("#add-class","click",()=>classSheet());
-  bindCat();bindDirs();on("#f-dq","input",e=>deb("dq",e.target.value));
+  bindDirs();on("#f-dq","input",e=>deb("dq",e.target.value));
   document.querySelectorAll("#main [data-open-uni]").forEach(el=>el.addEventListener("click",()=>uniSheet(el.dataset.openUni)));
   document.querySelectorAll("#main [data-open-app]").forEach(el=>el.addEventListener("click",()=>appSheet(el.dataset.openApp)));
 }
